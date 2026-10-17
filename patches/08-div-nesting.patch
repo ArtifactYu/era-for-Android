@@ -1,0 +1,272 @@
+From 730d96aacb4a94f0c4e7ab86bfea90cdce678d00 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 16:08:42 +0900
+Subject: [PATCH 09/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20div=E3=81=AE?=
+ =?UTF-8?q?=E5=85=A5=E3=82=8C=E5=AD=90=E3=81=A8=E9=96=89=E3=81=98=E5=BF=98?=
+ =?UTF-8?q?=E3=82=8C=E3=82=92=E8=A8=B1=E5=AE=B9=E3=81=97=E3=80=81SQL?=
+ =?UTF-8?q?=E5=88=9D=E6=9C=9F=E5=8C=96=E3=82=92=E8=B5=B7=E5=8B=95=E5=A4=B1?=
+ =?UTF-8?q?=E6=95=97=E3=81=95=E3=81=9B=E3=81=AA=E3=81=84=E3=82=88=E3=81=86?=
+ =?UTF-8?q?=E3=81=AB=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/Runtime/Utils/ErbSql.cs                | 31 +++++++++---
+ .../Runtime/Utils/EvilMask/ConsoleDivPart.cs  | 32 ++++++++++++-
+ Emuera/UI/Game/HtmlManager.cs                 | 48 ++++++++++++-------
+ 3 files changed, 86 insertions(+), 25 deletions(-)
+
+diff --git a/Emuera/Runtime/Utils/ErbSql.cs b/Emuera/Runtime/Utils/ErbSql.cs
+index 189a922..be6e9a7 100644
+--- a/Emuera/Runtime/Utils/ErbSql.cs
++++ b/Emuera/Runtime/Utils/ErbSql.cs
+@@ -2,6 +2,7 @@
+ //DB の実体は sav/temp_db/ に置き、セーブ時にセーブデータの隣へコピー、ロード時に書き戻す。
+ //起動時に temp_db を作り直すので、セーブせずに終了した変更は残らない。
+ using Microsoft.Data.Sqlite;
++using System;
+ using System.Collections.Generic;
+ using System.IO;
+ using trerror = MinorShift.Emuera.Runtime.Utils.EvilMask.Lang.Error;
+@@ -20,9 +21,7 @@ internal static class ErbSql
+ 	{
+ 		Directory.CreateDirectory(TempDir);
+ 
+-		foreach (long id in new List<long>(readers.Keys))
+-			CloseReader(id);
+-		connection?.Close();
++		CloseAll();
+ 		SqliteConnectionStringBuilder builder = new() { DataSource = TempDir + name + ".db" };
+ 		connection = new SqliteConnection(builder.ConnectionString);
+ 		connection.Open();
+@@ -33,18 +32,36 @@ internal static class ErbSql
+ 		command.ExecuteNonQuery();
+ 	}
+ 
+-	/// <summary>起動時に前回の作業用DBを捨てる</summary>
++	/// <summary>
++	/// 起動時に前回の作業用DBを捨てる。
++	/// ここは SQL_* を使わないゲームでも必ず通るので、失敗しても起動は止めない
++	/// （SQLite のアセンブリが無い構成や、DBファイルが掴まれている場合がある）。
++	/// </summary>
+ 	public static void SetUpTempDB()
+ 	{
+ 		if (!Directory.Exists(TempDir))
+ 			return;
++		try
++		{
++			CloseAll();
++			Directory.Delete(TempDir, true);
++			Directory.CreateDirectory(TempDir);
++		}
++		catch (Exception e) when (e is IOException or UnauthorizedAccessException or FileNotFoundException or TypeLoadException)
++		{
++		}
++	}
++
++	static void CloseAll()
++	{
+ 		foreach (long id in new List<long>(readers.Keys))
+ 			CloseReader(id);
+-		connection?.Close();
++		//一度も開いていなければ SQLite に触らない
++		if (connection == null)
++			return;
++		connection.Close();
+ 		connection = null;
+ 		SqliteConnection.ClearAllPools();
+-		Directory.Delete(TempDir, true);
+-		Directory.CreateDirectory(TempDir);
+ 	}
+ 
+ 	public static void Save(string destDirPath)
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index 4b8f6cb..9a4119e 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -98,11 +98,22 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 		int content = 0;
+ 		foreach (var line in childs)
+ 			foreach (var button in line.Buttons)
+-				if (button != null)
+-					content = Math.Max(content, button.PointX + button.Width);
++			{
++				if (button == null)
++					continue;
++				content = Math.Max(content, button.PointX + button.Width);
++				//入れ子の div は表示ノードとしての Width が 0 なので、自分で右端を出す
++				if (button.StrArray != null)
++					foreach (var part in button.StrArray)
++						if (part is ConsoleDivPart nested)
++							content = Math.Max(content, nested.LayoutRight);
++			}
+ 		return content + EdgeSize(Direction.Left) + EdgeSize(Direction.Right);
+ 	}
+ 
++	/// <summary>親の自動サイズ計算に使う、この div の右端</summary>
++	private int LayoutRight => PointX + xOffset + width;
++
+ 	//画像は1行に収まらないので、各ノードの下端から中身の実高さを求める
+ 	private static int ContentBottom(ConsoleDisplayLine[] childs)
+ 	{
+@@ -257,11 +268,28 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 		foreach (var child in children)
+ 		{
+ 			child.DrawTo(graph, pointY, isBackLog, true, mode);
++			//統合_netEmuera_div入れ子: ConsoleButtonString.DrawTo は div を読み飛ばすので、
++			//入れ子の div はここで自分で描く
++			DrawNestedDivs(graph, child, pointY, isSelecting, isBackLog, isFocus, mode);
+ 			pointY += Config.Config.LineHeight;
+ 		}
+ 		graph.ResetClip();
+ 	}
+ 
++	#region 統合_netEmuera_div入れ子
++	private static void DrawNestedDivs(Graphics graph, ConsoleDisplayLine line, int pointY, bool isSelecting, bool isBackLog, bool isFocus, TextDrawingMode mode)
++	{
++		foreach (var button in line.Buttons)
++		{
++			if (button?.StrArray == null)
++				continue;
++			foreach (var part in button.StrArray)
++				if (part is ConsoleDivPart nested)
++					nested.DrawTo(graph, pointY, isSelecting, isBackLog, isFocus, mode);
++		}
++	}
++	#endregion
++
+     private void ShiftChildrenX(int diff)
+ 	{
+ 		foreach (var child in children)
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index e7e4a53..161be44 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -269,7 +269,12 @@ internal static class HtmlManager
+ 
+ 		#region EM_私家版_HTML_divタグ
+ 		public bool StartingSubDivision;
++		/// <summary>いま中にいる div。&lt;/div&gt; の検出と再帰の終了に使う</summary>
+ 		public HtmlDivTag CurrentDivTag;
++		#region 統合_netEmuera_div入れ子
++		/// <summary>開いたばかりで、これから中身を組み立てる div</summary>
++		public HtmlDivTag PendingDivTag;
++		#endregion
+ 		public int SubDivisionWidth;
+ 		// public int SubDivisionXOffset; // 必要がなさそうなので削除する
+ 		#endregion
+@@ -449,6 +454,10 @@ internal static class HtmlManager
+ 		public CharStream Stream;
+ 		public bool HasComment;
+ 		public bool HasReturn;
++		#region 統合_netEmuera_div入れ子
++		/// <summary>これから中身を読む div。子から見た「今いる div」になる</summary>
++		public HtmlDivTag EnclosingDiv;
++		#endregion
+ 	}
+ 	/// <summary>
+ 	/// htmlから表示行の作成
+@@ -485,7 +494,8 @@ internal static class HtmlManager
+ 		if (parent != null)
+ 		{
+ 			state.SubDivisionWidth = parent.State.SubDivisionWidth;
+-			state.CurrentDivTag = parent.State.CurrentDivTag;
++			//統合_netEmuera_div入れ子: 子から見た「今いる div」は、親が今まさに組み立てている div
++			state.CurrentDivTag = parent.EnclosingDiv;
+ 			state.StartingSubDivision = parent.State.StartingSubDivision;
+ 			// state.SubDivisionXOffset = parent.State.SubDivisionXOffset;
+ 			state.FlagClearButton = parent.State.FlagClearButton;
+@@ -546,21 +556,22 @@ internal static class HtmlManager
+ 				#region EM_私家版_HTML_divタグ
+ 				if (state.StartingSubDivision)
+ 				{
+-					if (state.CurrentDivTag != null)
++					//統合_netEmuera_div入れ子: 組み立て対象は「開いたばかりの div」。
++					//入れ子でも同じ手順で組み立てられるよう parent == null の制限を外した
++					if (state.PendingDivTag != null)
+ 					{
+-						if (parent == null)
+ 						{
+ 							if (state.CurrentButtonTag != null || state.FontStyle != FontStyle.Regular || state.FonttagList.Count > 0)
+ 								throw new CodeEE(trerror.TagIsNotClosed.Text);
+-							var width = state.CurrentDivTag.Width;
++							var width = state.PendingDivTag.Width;
+ 							//統合_netEmuera: width 省略時は 0 のままにしておく。
+ 							//ButtonsToDisplayLines は 0 以下なら画面幅で折り返すので、
+ 							//折り返し後の実寸から ConsoleDivPart 側が幅を決める
+ 							state.SubDivisionWidth = width != null ? MixedNum.ToPixel(width) : 0;
+ 							// state.SubDivisionXOffset = 0;
+-							if (width != null && state.CurrentDivTag.StyledBox != null)
++							if (width != null && state.PendingDivTag.StyledBox != null)
+ 							{
+-								var box = state.CurrentDivTag.StyledBox;
++								var box = state.PendingDivTag.StyledBox;
+ 								if (box.margin != null)
+ 								{
+ 									state.SubDivisionWidth -= MixedNum.ToPixel(box.margin[Direction.Left]) + MixedNum.ToPixel(box.margin[Direction.Right]);
+@@ -577,20 +588,23 @@ internal static class HtmlManager
+ 									// state.SubDivisionXOffset += MixedNum.ToPixel(box.padding[Direction.Left]);
+ 								}
+ 							}
+-							state.CurrentDivTag.Lines = html2DisplayLine(null, sm, console, new HtmlParentInfo
++							var tagInfo = state.PendingDivTag;
++							state.PendingDivTag = null;
++							tagInfo.Lines = html2DisplayLine(null, sm, console, new HtmlParentInfo
+ 							{
+ 								HasComment = hasComment,
+ 								HasReturn = hasReturn,
+ 								State = state,
+ 								Stream = st,
++								EnclosingDiv = tagInfo,
+ 							}, null);
+-							var tagInfo = state.CurrentDivTag;
+-							state.CurrentDivTag = null;
+-							state.StartingSubDivision = false;
++							//統合_netEmuera_div入れ子: まだ外側の div の中なら、そのまま読み続ける
++							state.StartingSubDivision = state.CurrentDivTag != null;
+ 							cssList.Add(new ConsoleDivPart(tagInfo.X, tagInfo.Y, tagInfo.Width, tagInfo.Height, tagInfo.Depth, tagInfo.Color, tagInfo.StyledBox, tagInfo.Display, tagInfo.Lines));
+ 						}
+ 					}
+-					else
++					//</div> を読んで外側へ戻るところ
++					else if (state.CurrentDivTag == null)
+ 						break;
+ 				}
+ 				#endregion
+@@ -612,8 +626,9 @@ internal static class HtmlManager
+ 		}
+ 		//</nobr></p>は省略許可
+ 		#region EM_私家版_HTML_divタグ
+-		if (state.CurrentDivTag != null)
+-			throw new CodeEE(trerror.TagIsNotClosed.Text);
++		//統合_netEmuera_div入れ子: 末尾で閉じ忘れている div は HTML と同じく自動で閉じる。
++		//.netEmuera は AngleSharp なのでこれを許しており、</div> を <div> と打ち間違えたまま
++		//配布されているバリアントが実際にある
+ 		#endregion
+ 		if (state.CurrentButtonTag != null || state.FontStyle != FontStyle.Regular || state.FonttagList.Count > 0)
+ 			throw new CodeEE(trerror.TagIsNotClosed.Text);
+@@ -1092,8 +1107,9 @@ internal static class HtmlManager
+ 			#region EM_私家版_HTML_divタグ
+ 			case "div":
+ 				{
+-					if (state.CurrentDivTag != null)
+-						throw new CodeEE(string.Format(trerror.NestedTag.Text, "div"));
++					//統合_netEmuera_div入れ子: 入れ子を許可する。
++					//.netEmuera は HTML パーサ(AngleSharp)で読むため入れ子が普通に通り、
++					//「位置決め用の外側 div の中に中身の div を並べる」書き方が実際に使われている
+ 					MixedNum x = null;
+ 					MixedNum y = null;
+ 					MixedNum width = null;
+@@ -1212,7 +1228,7 @@ internal static class HtmlManager
+ 							throw new CodeEE(string.Format(trerror.CanNotInterpretAttributeName.Text, tag, word.Code));
+ 					}
+ 					//統合_netEmuera: width/height 省略時は中身に合わせる（null のまま渡す）
+-					state.CurrentDivTag = new HtmlDivTag(x, y, width, height, depth, color, box, displayMode);
++					state.PendingDivTag = new HtmlDivTag(x, y, width, height, depth, color, box, displayMode);
+ 					state.StartingSubDivision = true;
+ 					return null;
+ 				}
+-- 
+2.51.0.windows.1
+

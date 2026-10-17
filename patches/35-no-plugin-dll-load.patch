@@ -1,0 +1,118 @@
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Subject: [PATCH] Plugins/*.dll を読みに行かない
+
+起動のたびにこの 3 行が出ていた。
+
+    注意：外部プラグイン機能が有効になっています。この機能で生じた不具合等は
+    Emueraのサポート対象外となります
+    警告lv2: プラグイン「LAUNCH_BROWSER.dll」を読み込めませんでした。
+    このDLLが提供する命令は使用できません
+    警告lv2: プラグイン「StringBuilderPlugin.dll」を読み込めませんでした。
+    このDLLが提供する命令は使用できません
+
+    Could not load file or assembly 'Emuera, Version=1.824.0.0,
+    Culture=neutral, PublicKeyToken=null' or one of its dependencies.
+
+プラグイン DLL は本家 Emuera の本体アセンブリを参照しているので、この移植版では
+Assembly.LoadFrom / GetTypes() が必ず解決に失敗する。10-android-portability で
+「読めない DLL は警告して飛ばし、起動は続行する」ようにしてあったが、
+必ず失敗すると分かっているものを読みに行って毎回警告を出しているだけだった。
+ゲームフォルダに DLL が置いてあれば本数ぶん並ぶ (erablue_resort は 2 本)。
+
+Plugins ディレクトリを見に行くのをやめ、内蔵実装 (BuiltinPlugins) だけを登録する。
+GlobalStatic.ExistPlugin も立てない。立てると「外部プラグイン機能が有効に
+なっています」の注意まで出るが、この移植版で実際に有効になることは無いため。
+
+代替が要るプラグインは BuiltinPlugins に足す (LAUNCH_BROWSER は実装済み)。
+
+diff --git a/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs b/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs
+--- a/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs
++++ b/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs
+@@ -278,73 +278,20 @@
+ 			foreach (var builtin in BuiltinPlugins.GetMethods())
+ 				AddMethod(builtin);
+ 
+-			if (!Directory.Exists(Path.Combine(Program.ExeDir, "Plugins")))
+-			{
+-				//フォルダを作らないようにする
+-				return;
+-				//Directory.CreateDirectory("Plugins");
+-			}
+-			string[] plugins = Directory.GetFiles(Path.Combine(Program.ExeDir, "Plugins"), "*.dll");
+-			//bool pluginsAware = File.Exists(Program.ExeDir + "pluginsAware.txt");
+-
+-			//プラグインがある
+-			if (plugins.Length > 0)
+-				GlobalStatic.ExistPlugin = true;
+-			else
+-				GlobalStatic.ExistPlugin = false;
+-
+-
+-			foreach (var pluginPath in plugins)
+-			{
+-				//andEmuera: プラグイン DLL は本家の Emuera 本体アセンブリを参照しているため、
+-				//この移植版では Assembly.LoadFrom / GetTypes() が必ず解決に失敗する。
+-				//上流は例外をそのまま投げるので DLL が 1 本あるだけで起動ごと止まってしまう。
+-				//読めない DLL は警告して飛ばし、起動は続行する
+-				//(よく使われるプラグインは BuiltinPlugins の内蔵実装で代替している)。
+-				try
+-				{
+-					Assembly DLL = Assembly.LoadFrom(pluginPath);
+-					var manifestType = DLL.GetTypes().Where((v) => v.Name == "PluginManifest").FirstOrDefault();
+-					if (manifestType == null)
+-					{
+-						//TODO: throw warning
+-						continue;
+-					}
+-					/*
+-					if (!pluginsAware)
+-					{
+-						throw new ExeEE("This game comes prepackaged with plugins. This is a security check to make sure you're aware of that: Never run your EE under Administrator rights, Always get your games and Plugins from verified sources and If you're maintainer of the build and it should NOT come with plugins, Investigate immediately. If everything is okay, create file pluginsAware.txt at the root of the game distributive and restart");
+-					}
+-					*/
+-
+-					PluginManifestAbstract manifest = (PluginManifestAbstract)Activator.CreateInstance(manifestType);
+-					if (manifest == null)
+-					{
+-						//TODO: throw warning
+-						continue;
+-					}
+-
+-					var methods = manifest.GetPluginMethods();
+-					foreach (var method in methods)
+-					{
+-						AddMethod(method);
+-					}
+-				}
+-				catch (Exception e)
+-				{
+-					//andEmuera: ReflectionTypeLoadException の Message は「型を読み込めない」としか言わないので
+-					//実際に解決できなかったアセンブリ名が入っている LoaderExceptions 側を出す
+-					string mes = e.Message;
+-					if (e is ReflectionTypeLoadException rtle)
+-					{
+-						var loaderException = rtle.LoaderExceptions.FirstOrDefault(x => x != null);
+-						if (loaderException != null)
+-							mes = loaderException.Message;
+-					}
+-					//詳細は stack 引数に回す。1 行が長いと端末幅で切れて肝心の DLL 名が読めなくなる
+-					ParserMediator.Warn($"プラグイン「{Path.GetFileName(pluginPath)}」を読み込めませんでした。このDLLが提供する命令は使用できません", null, 2, mes);
+-				}
+-			}
++			//andEmuera: Plugins/*.dll は読みに行かない。
++			//
++			//プラグイン DLL は本家 Emuera の本体アセンブリを参照しているので、
++			//この移植版では Assembly.LoadFrom / GetTypes() が必ず解決に失敗する
++			//("Could not load file or assembly 'Emuera, Version=1.824.0.0'")。
++			//読もうとすると、ゲームフォルダに DLL を置いてあるだけで起動のたびに
++			//「読み込めませんでした」が本数ぶん並ぶ
++			//(erablue_resort は LAUNCH_BROWSER.dll と StringBuilderPlugin.dll の 2 本)。
++			//読んでも必ず失敗する以上、警告に意味は無い。
++			//
++			//必要なものは BuiltinPlugins に内蔵実装を足して代替する。
++			//ExistPlugin も立てない。立てると「外部プラグイン機能が有効になっています」の
++			//注意まで出るが、この移植版では実際に有効になることが無い。
++			GlobalStatic.ExistPlugin = false;
+ 		}
+ 
+ 		public IPluginMethod GetMethod(string name)

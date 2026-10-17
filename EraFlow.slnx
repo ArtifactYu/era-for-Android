@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/EraFlow.Android/EraFlow.Android.csproj" />
+  <Project Path="src/EraFlow.Storage/EraFlow.Storage.csproj" />
+  <Project Path="src/Emuera.Core/Emuera.Core.csproj" />
+  <Project Path="src/Emuera.WebHost/Emuera.WebHost.csproj" />
+  <Project Path="src/EraFlow.Probe/EraFlow.Probe.csproj" />
+  <Project Path="src/EraFlow.Storage.Tests/EraFlow.Storage.Tests.csproj" />
+</Solution>

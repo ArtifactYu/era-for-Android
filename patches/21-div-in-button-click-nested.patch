@@ -1,0 +1,194 @@
+From e1886272b768cc9130b6b1ba320349bca9dd127a Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 22:33:19 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E5=85=A5=E3=82=8C?=
+ =?UTF-8?q?=E5=AD=90=E3=81=AE=20div=20=E3=81=AE=E4=B8=AD=E3=81=A7=E3=82=82?=
+ =?UTF-8?q?=20button=20=E3=82=92=E6=8B=BE=E3=81=88=E3=82=8B=E3=82=88?=
+ =?UTF-8?q?=E3=81=86=E3=81=AB=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ShinEraTenseiP の TALK で「誰と話す？」の敵の枠をクリックしても
+反応しなかったのを直す。
+
+隊列表示は <div><button><div>…</div></button></div> という形で、
+ボタンが最上位ではなく位置決めの div の中に居る。この場合、
+
+  * 中身が div だけのボタンは Width が 0 になるので、
+    TestChildHitbox の button.PointX + button.Width の判定に入れない
+  * 入れ子の div は addDisplayLine を通らないので Parent が null で、
+    パッチ20 の「div ごとボタンの中身なら親ボタンを返す」も発火しない
+
+の2つで拾えていなかった。AutoWidth と DrawNestedDivs は同じ事情に対して
+すでに自分で子を辿っているので、当たり判定も同じ形にする。
+
+あわせて、div の中身を描くときに親ボタンの選択状態を渡す。ボタン自身は
+div を読み飛ばすため、これが無いとカーソルを乗せても色が変わらなかった。
+DrawNestedDivs が DrawTo に isFocus と isBackLog を逆順で渡していたのも
+直す（これまでは常に false だったので表面化していなかった）。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../Runtime/Utils/EvilMask/ConsoleDivPart.cs  | 53 +++++++++++++++++--
+ Emuera/UI/Game/ConsoleButtonString.cs         | 12 +++--
+ Emuera/UI/Game/ConsoleDisplayLine.cs          | 10 +++-
+ 3 files changed, 66 insertions(+), 9 deletions(-)
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index 9f4643f..517d293 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -86,6 +86,7 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 			contentHeight = Math.Max(Height, ContentBottom(childs) + EdgeSize(Direction.Top) + EdgeSize(Direction.Bottom));
+ 		}
+ 		children = childs;
++		LinkNestedDivParents(childs);
+ 		Depth = depth;
+ 		Display = display;
+ 
+@@ -114,6 +115,26 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 	/// <summary>親の自動サイズ計算に使う、この div の右端</summary>
+ 	private int LayoutRight => PointX + xOffset + width;
+ 
++	#region 統合_netEmuera_button内div
++	/// <summary>
++	/// 入れ子の div に、それを包んでいるボタンを覚えさせる。
++	/// 当たり判定と描画が「この div ごとボタンの中身」であることを知るのに使う。
++	/// 最上位の行なら addDisplayLine が同じことをしているが、div の中の行はそこを通らない
++	/// </summary>
++	private static void LinkNestedDivParents(ConsoleDisplayLine[] childs)
++	{
++		foreach (var line in childs)
++			foreach (var button in line.Buttons)
++			{
++				if (button?.StrArray == null)
++					continue;
++				foreach (var part in button.StrArray)
++					if (part is ConsoleDivPart nested)
++						nested.Parent = button;
++			}
++	}
++	#endregion
++
+ 	//画像は1行に収まらないので、各ノードの下端から中身の実高さを求める
+ 	private static int ContentBottom(ConsoleDisplayLine[] childs)
+ 	{
+@@ -199,6 +220,21 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 				ConsoleButtonString button = line.Buttons[line.Buttons.Length - b - 1];
+ 				if (button == null || button.StrArray == null)
+ 					continue;
++				#region 統合_netEmuera_button内div
++				//入れ子の div は表示ノードとしての Width が 0 なので、中身が div だけのボタンは
++				//X 範囲も 0 幅になる。下の X 判定では入れないので、先に div の中を見る
++				foreach (AConsoleDisplayNode part in button.StrArray)
++				{
++					if (part is not ConsoleDivPart nested)
++						continue;
++					ConsoleButtonString childPointing = nested.TestChildHitbox(pointX, pointY, relPointY);
++					if (childPointing == null)
++						continue;
++					pointing = childPointing;
++					if (pointing.IsButton)
++						return pointing;
++				}
++				#endregion
+ 				if (button.PointX <= pointX && button.PointX + button.Width >= pointX)
+ 				{
+ 					//if (relPointY >= 0 && relPointY <= Config.Config.FontSize)
+@@ -236,6 +272,15 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 	public override void DrawTo(Graphics graph, int pointY, bool isSelecting, bool isBackLog, bool isFocus, TextDrawingMode mode, bool isButton = false)
+ 	{
+ 		if (GlobalStatic.EMediator.Console.Window == null) return;
++		#region 統合_netEmuera_button内div
++		//この div ごとボタンの中身なら、そのボタンの選択状態で中身を描く。
++		//ボタン自身（ConsoleButtonString.DrawTo）は div を読み飛ばすので、ここで伝えないと色が変わらない
++		if (Parent != null && Parent.IsButton)
++		{
++			isSelecting |= GlobalStatic.EMediator.Console.ButtonIsPointing(Parent);
++			isFocus |= GlobalStatic.EMediator.Console.ButtonIsSelected(Parent);
++		}
++		#endregion
+ 		//統合_netEmuera: AbsoluteLeftTop / AbsoluteLeftBottom は .netEmuera の原点の取り方に合わせる
+ 		//（LeftBottom は画面下端 + ypos。ypos に負値を渡して下から積む使い方をする）
+ 		int clientHeight = GlobalStatic.EMediator.Console.Window.MainPicBox.Height;
+@@ -275,17 +320,17 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 		pointY = rect.Y;
+ 		foreach (var child in children)
+ 		{
+-			child.DrawTo(graph, pointY, isBackLog, true, mode);
++			child.DrawTo(graph, pointY, isBackLog, true, mode, isSelecting, isFocus);
+ 			//統合_netEmuera_div入れ子: ConsoleButtonString.DrawTo は div を読み飛ばすので、
+ 			//入れ子の div はここで自分で描く
+-			DrawNestedDivs(graph, child, pointY, isSelecting, isBackLog, isFocus, mode);
++			DrawNestedDivs(graph, child, pointY, isSelecting, isFocus, isBackLog, mode);
+ 			pointY += Config.Config.LineHeight;
+ 		}
+ 		graph.ResetClip();
+ 	}
+ 
+ 	#region 統合_netEmuera_div入れ子
+-	private static void DrawNestedDivs(Graphics graph, ConsoleDisplayLine line, int pointY, bool isSelecting, bool isBackLog, bool isFocus, TextDrawingMode mode)
++	private static void DrawNestedDivs(Graphics graph, ConsoleDisplayLine line, int pointY, bool isSelecting, bool isFocus, bool isBackLog, TextDrawingMode mode)
+ 	{
+ 		foreach (var button in line.Buttons)
+ 		{
+@@ -293,7 +338,7 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 				continue;
+ 			foreach (var part in button.StrArray)
+ 				if (part is ConsoleDivPart nested)
+-					nested.DrawTo(graph, pointY, isSelecting, isBackLog, isFocus, mode);
++					nested.DrawTo(graph, pointY, isSelecting, isFocus, isBackLog, mode);
+ 		}
+ 	}
+ 	#endregion
+diff --git a/Emuera/UI/Game/ConsoleButtonString.cs b/Emuera/UI/Game/ConsoleButtonString.cs
+index 42cf5f3..20913da 100644
+--- a/Emuera/UI/Game/ConsoleButtonString.cs
++++ b/Emuera/UI/Game/ConsoleButtonString.cs
+@@ -276,10 +276,16 @@ internal sealed class ConsoleButtonString
+ 			css.PointX += shiftX;
+ 	}
+ 
+-	public void DrawTo(Graphics graph, int pointY, bool isBackLog, TextDrawingMode mode)
++	/// <summary>
++	/// forceSelecting / forceFocus は div の中身を描くときに親の ConsoleDivPart から渡される。
++	/// &lt;button&gt;&lt;div&gt;…&lt;/div&gt;&lt;/button&gt; の中身はここでは非ボタンなので、自力では選択状態を持てない
++	/// </summary>
++	public void DrawTo(Graphics graph, int pointY, bool isBackLog, TextDrawingMode mode, bool forceSelecting = false, bool forceFocus = false)
+ 	{
+-		bool isFocus = IsButton && parent.ButtonIsSelected(this);
+-		bool isSelecting = IsButton && parent.ButtonIsPointing(this);
++		#region 統合_netEmuera_button内div
++		bool isFocus = forceFocus || (IsButton && parent.ButtonIsSelected(this));
++		bool isSelecting = forceSelecting || (IsButton && parent.ButtonIsPointing(this));
++		#endregion
+ 		#region EM_私家版_描画拡張
+ 		//foreach (AConsoleDisplayNode css in strArray)
+ 		//	css.DrawTo(graph, pointY, isSelecting, isBackLog, mode);
+diff --git a/Emuera/UI/Game/ConsoleDisplayLine.cs b/Emuera/UI/Game/ConsoleDisplayLine.cs
+index 149b51d..0b53d9d 100644
+--- a/Emuera/UI/Game/ConsoleDisplayLine.cs
++++ b/Emuera/UI/Game/ConsoleDisplayLine.cs
+@@ -139,10 +139,16 @@ internal sealed class ConsoleDisplayLine
+ 	//	return null;
+ 	//}
+ 
+-	public void DrawTo(Graphics graph, int pointY, bool isBackLog, bool force, TextDrawingMode mode)
++	/// <summary>
++	/// forceSelecting / forceFocus は div の中身を描くときに使う。
++	/// div ごとボタンの中身なら、中の非ボタンにもそのボタンの選択状態を被せる
++	/// </summary>
++	public void DrawTo(Graphics graph, int pointY, bool isBackLog, bool force, TextDrawingMode mode, bool forceSelecting = false, bool forceFocus = false)
+ 	{
++		#region 統合_netEmuera_button内div
+ 		foreach (ConsoleButtonString button in buttons)
+-			button.DrawTo(graph, pointY, isBackLog, mode);
++			button.DrawTo(graph, pointY, isBackLog, mode, forceSelecting, forceFocus);
++		#endregion
+ 	}
+ 
+ 	readonly static StringBuilder builder = new();
+-- 
+2.51.0.windows.1
+

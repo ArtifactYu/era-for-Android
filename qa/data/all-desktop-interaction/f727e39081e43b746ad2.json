@@ -1,0 +1,79 @@
+{
+  "steps": [
+    {
+      "input": "<launch>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "Traveler"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "10"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    }
+  ]
+}

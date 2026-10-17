@@ -1,0 +1,16 @@
+# 本快照已包含完整修补引擎（upstream/emuera.em），修改记录见 patches/。
+# 如将来改为"单独 clone 上游 + 打补丁"的工作方式，可取消下面一行的注释。
+# /upstream/
+
+# 发布产物
+/dist/
+
+# 构建生成物
+[Bb]in/
+[Oo]bj/
+*.user
+
+# 签名密钥绝不入库
+*.keystore
+*.jks
+/リリースキーなど/

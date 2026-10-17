@@ -1,0 +1,67 @@
+From 9de0d6bdfc7cc690cade08fa8662223a3b7c6c95 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 16:11:22 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20HTML=5FPRINT=5FISLAND=20?=
+ =?UTF-8?q?=E3=81=AE=E4=B8=AD=E3=81=AE=20div=20=E3=82=92=E6=8F=8F=E3=81=8F?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+島（HTML_PRINT_ISLAND）は行に属さないので ConsoleEscapedParts に載らず、
+奥行きごとの描画を通らない。島の描画は ConsoleDisplayLine.DrawTo を呼ぶだけで、
+その先の ConsoleButtonString.DrawTo は div を読み飛ばすため、
+島の中の <div> は当たり判定にだけ入って画面には出ていなかった。
+
+ShinEraTenseiP は画面暗転もエンカウント表示も <div> だけの島で作る
+（RPG\ダンジョンアタック\SYSTEM_DUNGEON.ERB:2626 と :2630）ので、
+このままではエラーにならなくても何も出ない。入れ子の div を描くために
+既にある DrawNestedDivs を島からも使えるようにして、行が直接持つ div を描く。
+
+島の当たり判定を足したパッチ(23)の描画側にあたる。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs | 9 +++++++++
+ Emuera/UI/Game/EmueraConsole.cs                 | 6 ++++++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index 5d8505b..7595e2a 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -352,6 +352,15 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 		graph.ResetClip();
+ 	}
+ 
++	#region 統合_netEmuera_island内div
++	/// <summary>行が直接持っている div を描く。HTML_PRINT_ISLAND のように
++	/// 奥行きごとの描画（ConsoleEscapedParts）を通らない行のためのもの</summary>
++	internal static void DrawDivsIn(Graphics graph, ConsoleDisplayLine line, int pointY, TextDrawingMode mode)
++	{
++		DrawNestedDivs(graph, line, pointY, false, false, false, mode);
++	}
++	#endregion
++
+ 	#region 統合_netEmuera_div入れ子
+ 	private static void DrawNestedDivs(Graphics graph, ConsoleDisplayLine line, int pointY, bool isSelecting, bool isFocus, bool isBackLog, TextDrawingMode mode)
+ 	{
+diff --git a/Emuera/UI/Game/EmueraConsole.cs b/Emuera/UI/Game/EmueraConsole.cs
+index 6f0b420..225b6c0 100644
+--- a/Emuera/UI/Game/EmueraConsole.cs
++++ b/Emuera/UI/Game/EmueraConsole.cs
+@@ -1777,6 +1777,12 @@ internal sealed partial class EmueraConsole : IDisposable
+ 		foreach (var element in _htmlElementList)
+ 		{
+ 			element.DrawTo(graph, y, false, false, Config.TextDrawingMode);
++			#region 統合_netEmuera_island内div
++			//ConsoleButtonString.DrawTo は div を読み飛ばし、島は ConsoleEscapedParts に
++			//載らない（＝奥行きごとの描画に入らない）ので、島の div はここで自分で描く。
++			//ShinEraTenseiP のエンカウント表示や画面暗転が <div> だけの島を出す
++			ConsoleDivPart.DrawDivsIn(graph, element, y, Config.TextDrawingMode);
++			#endregion
+ 			y += Config.LineHeight;
+ 		}
+ 
+-- 
+2.51.0.windows.1
+

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <TargetFramework>net10.0-android</TargetFramework><SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
+  <OutputType>Exe</OutputType><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+  <ApplicationId>app.eraflow.android</ApplicationId><ApplicationVersion>2</ApplicationVersion><ApplicationDisplayVersion>1.1.0</ApplicationDisplayVersion>
+  <RootNamespace>EraFlow</RootNamespace><PublishTrimmed>false</PublishTrimmed><AndroidLinkMode>None</AndroidLinkMode>
+  <RunAOTCompilation>false</RunAOTCompilation><AndroidPackageFormats>apk</AndroidPackageFormats><AndroidUseSharedRuntime>false</AndroidUseSharedRuntime>
+  <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+  <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' == ''">android-arm64;android-x64</RuntimeIdentifiers>
+ </PropertyGroup>
+ <ItemGroup>
+  <ProjectReference Include="../Emuera.WebHost/Emuera.WebHost.csproj"/><ProjectReference Include="../EraFlow.Storage/EraFlow.Storage.csproj"/>
+  <PackageReference Include="SkiaSharp" Version="3.119.0"/><PackageReference Include="SkiaSharp.NativeAssets.Android" Version="3.119.0"/>
+  <AndroidAsset Include="../andEmuera.Android/Assets/fonts/*" Link="fonts/%(Filename)%(Extension)"/>
+  <AndroidAsset Include="../../licenses/*" Link="licenses/%(Filename)%(Extension)"/>
+  <AndroidAsset Include="../../LICENSE" Link="licenses/LICENSE"/>
+ </ItemGroup>
+</Project>

@@ -1,0 +1,38 @@
+From 9d334d30ea3e0fa41df9e2696145e93d25a192e7 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 16:18:57 +0900
+Subject: [PATCH 10/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20div=E3=81=AE?=
+ =?UTF-8?q?=E5=B1=9E=E6=80=A7=E3=81=AB=E7=B4=9B=E3=82=8C=E3=81=9F=E4=B8=8D?=
+ =?UTF-8?q?=E6=AD=A3=E3=83=88=E3=83=BC=E3=82=AF=E3=83=B3=E3=82=92=E8=AA=AD?=
+ =?UTF-8?q?=E3=81=BF=E9=A3=9B=E3=81=B0=E3=81=99?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/UI/Game/HtmlManager.cs | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index 161be44..d01358d 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -1121,6 +1121,15 @@ internal static class HtmlManager
+ 					string attrValue;
+ 					while (wc != null && !wc.EOL)
+ 					{
++						//統合_netEmuera: 属性名として読めないトークンは読み飛ばす。
++						//.netEmuera は HTML パーサ(AngleSharp)なので不正な属性を黙って無視する。
++						//実際 <div xpos='..'  + ypos='..'> のように余分な + が入ったまま
++						//配布されているバリアントがある（ERB 側の書き間違い）
++						if (wc.Current is not IdentifierWord)
++						{
++							wc.ShiftNext();
++							continue;
++						}
+ 						word = wc.Current as IdentifierWord;
+ 						wc.ShiftNext();
+ 						OperatorWord op = wc.Current as OperatorWord;
+-- 
+2.51.0.windows.1
+

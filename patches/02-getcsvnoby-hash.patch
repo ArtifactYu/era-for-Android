@@ -1,0 +1,182 @@
+From 25d53eab5c4286cce16384dcedc2abbcb1494b1c Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 12:04:25 +0900
+Subject: [PATCH 03/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20GETCSVNOBY*/HASH=5F?=
+ =?UTF-8?q?XXH3/HASH=5FXXH32=20=E3=82=92.netEmuera=E3=81=8B=E3=82=89?=
+ =?UTF-8?q?=E7=A7=BB=E6=A4=8D?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/Emuera.csproj                          |  2 +
+ Emuera/Runtime/Script/Data/ConstantData.cs    | 22 +++++
+ .../Function/Creator.Method.Unify.cs          | 82 +++++++++++++++++++
+ .../Script/Statements/Function/Creator.cs     |  9 ++
+ 4 files changed, 115 insertions(+)
+ create mode 100644 Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify.cs
+
+diff --git a/Emuera/Emuera.csproj b/Emuera/Emuera.csproj
+index b13c9fc..74ff33f 100644
+--- a/Emuera/Emuera.csproj
++++ b/Emuera/Emuera.csproj
+@@ -137,6 +137,8 @@
+     <ItemGroup>
+       <PackageReference Include="Enums.NET" Version="4.0.2" />
+       <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
++      <!-- 統合_netEmuera: HASH_XXH3 / HASH_XXH32 用 -->
++      <PackageReference Include="System.IO.Hashing" Version="9.0.1" />
+     </ItemGroup>
+ 
+ 
+diff --git a/Emuera/Runtime/Script/Data/ConstantData.cs b/Emuera/Runtime/Script/Data/ConstantData.cs
+index 8956939..4aab601 100644
+--- a/Emuera/Runtime/Script/Data/ConstantData.cs
++++ b/Emuera/Runtime/Script/Data/ConstantData.cs
+@@ -113,6 +113,17 @@ internal sealed class ConstantData
+ 	#endregion
+ 	private readonly Dictionary<string, int>[] nameToIntDics = new Dictionary<string, int>[(int)VariableCode.__COUNT_CSV_STRING_ARRAY_1D__];
+ 	private readonly Dictionary<string, int> relationDic = [];
++	#region 統合_netEmuera
++	//GETCSVNOBY*系用の逆引き。relationDicは4種を1つに混ぜているため種別ごとに引けない
++	private readonly Dictionary<string, long> nameToTemplateMap = [];
++	private readonly Dictionary<string, long> nicknameToTemplateMap = [];
++	private readonly Dictionary<string, long> callnameToTemplateMap = [];
++	private readonly Dictionary<string, long> masternameToTemplateMap = [];
++	public IReadOnlyDictionary<string, long> NameToTemplateMap => nameToTemplateMap;
++	public IReadOnlyDictionary<string, long> NicknameToTemplateMap => nicknameToTemplateMap;
++	public IReadOnlyDictionary<string, long> CallnameToTemplateMap => callnameToTemplateMap;
++	public IReadOnlyDictionary<string, long> MasternameToTemplateMap => masternameToTemplateMap;
++	#endregion
+ 	public string[] GetCsvNameList(VariableCode code)
+ 	{
+ 		return names[(int)(code & VariableCode.__LOWERCASE__)];
+@@ -710,6 +721,17 @@ internal sealed class ConstantData
+ 				relationDic.Add(tmpl.Nickname, (int)tmpl.No);
+ 			if (!string.IsNullOrEmpty(tmpl.Mastername) && !relationDic.ContainsKey(tmpl.Mastername))
+ 				relationDic.Add(tmpl.Mastername, (int)tmpl.No);
++			#region 統合_netEmuera
++			//CharacterTmplListはNo順に整列済みなので、先勝ちで最小のNoが残る
++			if (tmpl.Name is not null)
++				nameToTemplateMap.TryAdd(tmpl.Name, tmpl.No);
++			if (tmpl.Nickname is not null)
++				nicknameToTemplateMap.TryAdd(tmpl.Nickname, tmpl.No);
++			if (tmpl.Callname is not null)
++				callnameToTemplateMap.TryAdd(tmpl.Callname, tmpl.No);
++			if (tmpl.Mastername is not null)
++				masternameToTemplateMap.TryAdd(tmpl.Mastername, tmpl.No);
++			#endregion
+ 		}
+ 	}
+ 	#region EE_ERD
+diff --git a/Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify.cs b/Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify.cs
+new file mode 100644
+index 0000000..8109652
+--- /dev/null
++++ b/Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify.cs
+@@ -0,0 +1,82 @@
++//統合_netEmuera: .netEmuera (gitlab.com/alnatiyan/EmueraDotNet) 由来の式中関数。
++//上流の Creator.Method.cs を触らずに済むよう、partial の別ファイルとして置いている。
++using MinorShift.Emuera.Runtime.Script.Data;
++using MinorShift.Emuera.Runtime.Script.Statements;
++using MinorShift.Emuera.Runtime.Script.Statements.Expression;
++using MinorShift.Emuera.Runtime.Script.Statements.Function;
++using MinorShift.Emuera.Runtime.Utils;
++using System;
++using System.Collections.Generic;
++using System.IO.Hashing;
++using System.Text;
++
++namespace MinorShift.Emuera.GameData.Function;
++
++internal static partial class FunctionMethodCreator
++{
++	/// <summary>
++	/// GETCSVNOBYNAME / GETCSVNOBYNICKNAME / GETCSVNOBYCALLNAME / GETCSVNOBYMASTERNAME
++	/// 名前からキャラのCSV番号を引く。該当なしは -1。
++	/// </summary>
++	private sealed class GetCsvNoMethod : FunctionMethod
++	{
++		readonly CharacterStrData charaStr;
++
++		public GetCsvNoMethod(CharacterStrData data)
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = true;
++			charaStr = data;
++		}
++
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			string str = arguments[0].GetStrValue(exm);
++			ConstantData constant = exm.VEvaluator.Constant;
++			IReadOnlyDictionary<string, long> map = charaStr switch
++			{
++				CharacterStrData.NAME => constant.NameToTemplateMap,
++				CharacterStrData.NICKNAME => constant.NicknameToTemplateMap,
++				CharacterStrData.CALLNAME => constant.CallnameToTemplateMap,
++				CharacterStrData.MASTERNAME => constant.MasternameToTemplateMap,
++				_ => throw new ExeEE("error"),
++			};
++			return map.TryGetValue(str, out long no) ? no : -1;
++		}
++	}
++
++	/// <summary>HASH_XXH3(文字列) — UTF-8バイト列のxxHash3を符号付き64bitで返す</summary>
++	private sealed class XXH3Method : FunctionMethod
++	{
++		public XXH3Method()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			string source = arguments[0].GetStrValue(exm);
++			return (long)XxHash3.HashToUInt64(Encoding.UTF8.GetBytes(source));
++		}
++	}
++
++	/// <summary>HASH_XXH32(文字列) — UTF-8バイト列のxxHash32</summary>
++	private sealed class XXH32Method : FunctionMethod
++	{
++		public XXH32Method()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			string source = arguments[0].GetStrValue(exm);
++			return XxHash32.HashToUInt32(Encoding.UTF8.GetBytes(source));
++		}
++	}
++}
+diff --git a/Emuera/Runtime/Script/Statements/Function/Creator.cs b/Emuera/Runtime/Script/Statements/Function/Creator.cs
+index ab3d2c5..7188e70 100644
+--- a/Emuera/Runtime/Script/Statements/Function/Creator.cs
++++ b/Emuera/Runtime/Script/Statements/Function/Creator.cs
+@@ -32,6 +32,15 @@ internal static partial class FunctionMethodCreator
+ 			["FINDCHARA"] = new FindcharaMethod(false),
+ 			["FINDLASTCHARA"] = new FindcharaMethod(true),
+ 			["EXISTCSV"] = new ExistCsvMethod(),
++			#region 統合_netEmuera
++			//名前からCSV番号を引く。CSVNAME等の逆方向
++			["GETCSVNOBYNAME"] = new GetCsvNoMethod(CharacterStrData.NAME),
++			["GETCSVNOBYNICKNAME"] = new GetCsvNoMethod(CharacterStrData.NICKNAME),
++			["GETCSVNOBYCALLNAME"] = new GetCsvNoMethod(CharacterStrData.CALLNAME),
++			["GETCSVNOBYMASTERNAME"] = new GetCsvNoMethod(CharacterStrData.MASTERNAME),
++			["HASH_XXH3"] = new XXH3Method(),
++			["HASH_XXH32"] = new XXH32Method(),
++			#endregion
+ 
+ 			//汎用処理系
+ 			["VARSIZE"] = new VarsizeMethod(),
+-- 
+2.51.0.windows.1
+

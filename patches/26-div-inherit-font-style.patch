@@ -1,0 +1,49 @@
+From 41b85fb5312b6c4883cb09086d113335b1105a97 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 15:38:59 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20div=20=E3=81=AE=E4=B8=AD?=
+ =?UTF-8?q?=E3=81=B8=20<b>/<font>=20=E3=81=AE=E5=8A=B9=E6=9E=9C=E3=82=92?=
+ =?UTF-8?q?=E6=8C=81=E3=81=A1=E8=BE=BC=E3=82=80?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+EM+EE は <div> の中身を別の解析状態で読むため、div の外で開いた <b> や <font> が
+中の文字に効かなかった。.netEmuera は AngleSharp の DOM を辿って描くので、
+祖先のスタイルはそのまま子へ渡る（ParseNode に stringStyle を渡している）。
+
+ShinEraTenseiP の RPG\ダンジョンアタック\SYSTEM_DUNGEON.ERB:2630 が
+<b><font size='300' color='赤'><div>ENCOUNT</div><div>ENEMY!!</div> という形で
+エンカウント表示を作るので、継承しないと大きな赤文字にならず、
+div の中に置かれた </b> も「</b>の前に<b>がありません」になっていた。
+
+子で閉じたぶんは親へ戻さない（親は自分のスコープで閉じるか、末尾で自動的に閉じる）。
+閉じ忘れを末尾で自動的に閉じるパッチ(25)が前提。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/HtmlManager.cs | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index e94ea4a..c5e6221 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -505,6 +505,14 @@ internal static class HtmlManager
+ 			//統合_netEmuera_div入れ子: 子から見た「今いる div」は、親が今まさに組み立てている div
+ 			state.CurrentDivTag = parent.EnclosingDiv;
+ 			state.StartingSubDivision = parent.State.StartingSubDivision;
++			#region 統合_netEmuera_div内スタイル継承
++			//<b>/<i>/<u>/<s> と <font> の効果は div の中にも及ぶ。.netEmuera は AngleSharp の
++			//DOM を辿って描くので、祖先のスタイルがそのまま子へ渡る。
++			//ShinEraTenseiP の SYSTEM_DUNGEON.ERB:2630 が
++			//<b><font size='300' color='赤'><div>ENCOUNT</div>… という形でエンカウント表示を作る
++			state.FontStyle = parent.State.FontStyle;
++			state.FonttagList = [.. parent.State.FonttagList];
++			#endregion
+ 			// state.SubDivisionXOffset = parent.State.SubDivisionXOffset;
+ 			state.FlagClearButton = parent.State.FlagClearButton;
+ 			state.FlagClearButtonTooltip = parent.State.FlagClearButtonTooltip;
+-- 
+2.51.0.windows.1
+

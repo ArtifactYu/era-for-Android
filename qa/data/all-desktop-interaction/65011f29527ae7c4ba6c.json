@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "input": "<launch>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "1"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "901"
+    },
+    {
+      "input": "902"
+    },
+    {
+      "input": "903"
+    }
+  ]
+}

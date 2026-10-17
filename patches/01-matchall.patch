@@ -1,0 +1,318 @@
+From 791d7ff3212749b285baf5da288d37110c661c12 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 12:03:59 +0900
+Subject: [PATCH 02/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20MATCHALL=E5=91=BD?=
+ =?UTF-8?q?=E4=BB=A4=E3=82=92.netEmuera=E3=81=8B=E3=82=89=E7=A7=BB?=
+ =?UTF-8?q?=E6=A4=8D?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/Runtime/Script/Statements/Argument.cs  |  20 ++++
+ .../Script/Statements/ArgumentBuilder.cs      | 103 ++++++++++++++++++
+ .../Script/Statements/BuiltInFunctionCode.cs  |   4 +
+ .../Script/Statements/FunctionArgType.cs      |   3 +
+ .../Script/Statements/FunctionIdentifier.cs   |   3 +
+ .../Script/Statements/Instruction.MatchAll.cs | 102 +++++++++++++++++
+ 6 files changed, 235 insertions(+)
+ create mode 100644 Emuera/Runtime/Script/Statements/Instruction.MatchAll.cs
+
+diff --git a/Emuera/Runtime/Script/Statements/Argument.cs b/Emuera/Runtime/Script/Statements/Argument.cs
+index c1c8f6e..8694620 100644
+--- a/Emuera/Runtime/Script/Statements/Argument.cs
++++ b/Emuera/Runtime/Script/Statements/Argument.cs
+@@ -542,6 +542,26 @@ internal sealed class SpSaveVarArgument : Argument
+ 	readonly public VariableToken[] VarTokens;
+ }
+ 
++#region 統合_netEmuera
++internal sealed class SpMatchAllArgument : Argument
++{
++	public SpMatchAllArgument(VariableToken token, AExpression value, AExpression beg, AExpression end, long? index)
++	{
++		Token = token;
++		Value = value;
++		Beg = beg;
++		End = end;
++		Index = index;
++	}
++	readonly public VariableToken Token;
++	readonly public AExpression Value;
++	readonly public AExpression Beg;
++	readonly public AExpression End;
++	//1次元キャラクタ変数を対象にしたときのキャラ添字（定数）
++	readonly public long? Index;
++}
++#endregion
++
+ internal sealed class RefArgument : Argument
+ {
+ 	public RefArgument(UserDefinedRefMethod udrm, UserDefinedRefMethod src)
+diff --git a/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs b/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs
+index 44b47dc..12bb633 100644
+--- a/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs
++++ b/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs
+@@ -245,7 +245,110 @@ internal static partial class ArgumentParser
+ 		#region EM_私家版_HTML_PRINT拡張
+ 		argb[FunctionArgType.SP_HTML_PRINT] = new SP_HTML_PRINT_ArgumentBuilder();
+ 		#endregion
++		#region 統合_netEmuera
++		argb[FunctionArgType.SP_MATCHALL] = new SP_MATCHALL_ArgumentBuilder();
++		#endregion
++	}
++
++	#region 統合_netEmuera
++	private sealed class SP_MATCHALL_ArgumentBuilder : ArgumentBuilder
++	{
++		public override Argument CreateArgument(InstructionLine line, ExpressionMediator exm)
++		{
++			List<AExpression> terms = popTerms(line);
++			int count = 0;
++			if (terms.Count <= count)
++			{
++				warn("引数がありません", line, 2, false);
++				return null;
++			}
++			++count;
++			VariableTerm varTerm = getChangeableVariable(terms, 1, line);
++			VariableToken token = varTerm?.Identifier;
++			if (token == null)
++			{
++				warn("第一引数が無効な変数指定です", line, 2, false);
++				return null;
++			}
++			Type targetType = token.VariableType;
++			if (token.IsArray3D || token.IsArray2D)
++			{
++				warn("変数の次元が大きすぎます", line, 2, false);
++				return null;
++			}
++			if (!token.IsCharacterData && !token.IsArray1D)
++			{
++				warn("非キャラクタ変数が対象の場合は1次元である必要があります", line, 2, false);
++				return null;
++			}
++
++			//1次元キャラクタ変数はキャラを走査するので、変数側の添字を定数で受け取る
++			long? indexValue = null;
++			if (token.IsCharacterData && token.IsArray1D)
++			{
++				if (terms.Count <= count)
++				{
++					warn("1次元キャラクタ変数に対するインデックス指定がありません", line, 2, false);
++					return null;
++				}
++				if (terms[count] is not SingleLongTerm indexTerm)
++				{
++					warn("1次元キャラクタ変数に対するインデックス指定は整数定数である必要があります", line, 2, false);
++					return null;
++				}
++				++count;
++				indexValue = indexTerm.GetIntValue(exm);
++				if (indexValue < 0)
++				{
++					warn("インデックスが負の値です", line, 2, false);
++					return null;
++				}
++			}
++
++			if (terms.Count <= count)
++			{
++				warn("探す値の指定がありません", line, 2, false);
++				return null;
++			}
++			AExpression value = terms[count];
++			++count;
++			if (value.GetOperandType() != targetType)
++			{
++				warn("検索する値と対象変数の型が一致しません", line, 2, false);
++				return null;
++			}
++
++			AExpression beg = null;
++			AExpression end = null;
++			if (terms.Count > count)
++			{
++				beg = terms[count];
++				if (!beg.IsInteger)
++				{
++					warn("範囲指定は整数値である必要があります", line, 2, false);
++					return null;
++				}
++				++count;
++			}
++			if (terms.Count > count)
++			{
++				end = terms[count];
++				if (!end.IsInteger)
++				{
++					warn("範囲指定は整数値である必要があります", line, 2, false);
++					return null;
++				}
++				++count;
++			}
++			if (terms.Count > count)
++			{
++				warn("引数が多すぎます", line, 2, false);
++				return null;
++			}
++			return new SpMatchAllArgument(token, value, beg, end, indexValue);
++		}
+ 	}
++	#endregion
+ 
+ 	#region EM_私家版_HTMLパラメータ拡張
+ 	private sealed class SP_PRINT_IMG_ArgumentBuilder : ArgumentBuilder
+diff --git a/Emuera/Runtime/Script/Statements/BuiltInFunctionCode.cs b/Emuera/Runtime/Script/Statements/BuiltInFunctionCode.cs
+index 0b81d6f..0aeb9d9 100644
+--- a/Emuera/Runtime/Script/Statements/BuiltInFunctionCode.cs
++++ b/Emuera/Runtime/Script/Statements/BuiltInFunctionCode.cs
+@@ -239,6 +239,10 @@ enum FunctionCode
+ 	VARSET,
+ 	CVARSET,
+ 
++	#region 統合_netEmuera
++	MATCHALL,//配列中で値に一致した要素の添字をRESULTに列挙する
++	#endregion
++
+ 	RESET_STAIN,
+ 
+ 	SAVENOS,//引数の仕様が違うので(ry
+diff --git a/Emuera/Runtime/Script/Statements/FunctionArgType.cs b/Emuera/Runtime/Script/Statements/FunctionArgType.cs
+index 4f86e91..d610284 100644
+--- a/Emuera/Runtime/Script/Statements/FunctionArgType.cs
++++ b/Emuera/Runtime/Script/Statements/FunctionArgType.cs
+@@ -85,4 +85,7 @@ enum FunctionArgType
+ 	#region EM_私家版_HTML_PRINT拡張
+ 	SP_HTML_PRINT,
+ 	#endregion
++	#region 統合_netEmuera
++	SP_MATCHALL,//<変数>（, <キャラ変数の添字>）, <探す値>（, <開始>（, <終了>））
++	#endregion
+ }
+diff --git a/Emuera/Runtime/Script/Statements/FunctionIdentifier.cs b/Emuera/Runtime/Script/Statements/FunctionIdentifier.cs
+index caab2ff..6ca65b8 100644
+--- a/Emuera/Runtime/Script/Statements/FunctionIdentifier.cs
++++ b/Emuera/Runtime/Script/Statements/FunctionIdentifier.cs
+@@ -316,6 +316,9 @@ internal sealed partial class FunctionIdentifier
+ 
+ 		addFunction(FunctionCode.VARSET, new VARSET_Instruction());
+ 		addFunction(FunctionCode.CVARSET, new CVARSET_Instruction());
++		#region 統合_netEmuera
++		addFunction(FunctionCode.MATCHALL, new MATCHALL_Instruction());
++		#endregion
+ 
+ 		addFunction(FunctionCode.RESET_STAIN, argb[FunctionArgType.INT_EXPRESSION], METHOD_SAFE | EXTENDED);
+ 
+diff --git a/Emuera/Runtime/Script/Statements/Instruction.MatchAll.cs b/Emuera/Runtime/Script/Statements/Instruction.MatchAll.cs
+new file mode 100644
+index 0000000..1f73db8
+--- /dev/null
++++ b/Emuera/Runtime/Script/Statements/Instruction.MatchAll.cs
+@@ -0,0 +1,102 @@
++//統合_netEmuera: .netEmuera (gitlab.com/alnatiyan/EmueraDotNet) の MATCHALL 命令を移植したもの。
++//上流の Instraction.Child.cs を触らずに済むよう、partial の別ファイルとして置いている。
++using MinorShift.Emuera.GameData.Variable;
++using MinorShift.Emuera.Runtime.Script;
++using MinorShift.Emuera.Runtime.Script.Statements;
++using MinorShift.Emuera.Runtime.Script.Statements.Expression;
++using MinorShift.Emuera.Runtime.Script.Statements.Variable;
++using MinorShift.Emuera.Runtime.Utils;
++using System;
++
++namespace MinorShift.Emuera.GameProc.Function;
++
++internal sealed partial class FunctionIdentifier
++{
++	/// <summary>
++	/// MATCHALL &lt;変数&gt;（, &lt;キャラ変数の添字&gt;）, &lt;探す値&gt;（, &lt;開始&gt;（, &lt;終了&gt;））
++	/// 一致した要素数を RESULT:0 に、その添字を RESULT:1 以降に格納する。
++	/// RESULT の長さを超えた分は件数にだけ数えて捨てる。
++	/// </summary>
++	private sealed class MATCHALL_Instruction : AInstruction
++	{
++		public MATCHALL_Instruction()
++		{
++			ArgBuilder = ArgumentParser.GetArgumentBuilder(FunctionArgType.SP_MATCHALL);
++			flag = EXTENDED | METHOD_SAFE;
++		}
++
++		public override void DoInstruction(ExpressionMediator exm, InstructionLine func, ProcessState state)
++		{
++			SpMatchAllArgument arg = (SpMatchAllArgument)func.Argument;
++			VariableToken token = arg.Token;
++			AExpression valExpr = arg.Value;
++			Type type = valExpr.GetOperandType();
++
++			//キャラクタ変数はキャラ番号を、それ以外は配列の添字を走査する
++			long len;
++			if (token.IsCharacterData)
++			{
++				if (token.IsArray2D || token.IsArray3D)
++					throw new ExeEE("type error");
++				len = exm.VEvaluator.CHARANUM;
++			}
++			else
++			{
++				if (!token.IsArray1D)
++					throw new ExeEE("type error");
++				len = token.GetLength(0);
++			}
++
++			long beg = arg.Beg?.GetIntValue(exm) ?? 0;
++			long end = arg.End?.GetIntValue(exm) ?? len;
++			if (beg < 0 || end < 0)
++				throw new CodeEE("検索範囲に負の値が渡されました");
++			if (beg > end)
++				throw new CodeEE("検索範囲の指定が不正です");
++			if (Math.Max(beg, end) > len)
++				throw new CodeEE("検索範囲が変数のサイズを超えています");
++
++			long[] arr = exm.VEvaluator.RESULT_ARRAY;
++			Span<long> output = arr.AsSpan()[1..];
++
++			//idxs[0] が走査対象。1次元キャラクタ変数のときだけ idxs[1] に変数側の添字を固定する
++			long[] idxs = new long[2];
++			if (arg.Index.HasValue)
++				idxs[1] = arg.Index.Value;
++
++			int count = 0;
++			if (type == typeof(long))
++			{
++				long val = valExpr.GetIntValue(exm);
++				for (long i = beg; i < end; i++)
++				{
++					idxs[0] = i;
++					if (val == token.GetIntValue(exm, idxs))
++					{
++						if (output.Length > count)
++							output[count] = i;
++						++count;
++					}
++				}
++			}
++			else if (type == typeof(string))
++			{
++				string val = valExpr.GetStrValue(exm);
++				for (long i = beg; i < end; i++)
++				{
++					idxs[0] = i;
++					if (val == token.GetStrValue(exm, idxs))
++					{
++						if (output.Length > count)
++							output[count] = i;
++						++count;
++					}
++				}
++			}
++			else
++				throw new ExeEE("unknown type");
++
++			arr[0] = count;
++		}
++	}
++}
+-- 
+2.51.0.windows.1
+

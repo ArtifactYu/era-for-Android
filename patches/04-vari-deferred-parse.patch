@@ -1,0 +1,260 @@
+From 4c0c59645a2827ccdd198d2799741fa58936a848 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 12:15:31 +0900
+Subject: [PATCH 05/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20VARI/VARS=E3=81=AE?=
+ =?UTF-8?q?=E5=BC=95=E6=95=B0=E8=A7=A3=E6=9E=90=E3=82=92=E9=81=85=E5=BB=B6?=
+ =?UTF-8?q?=E3=81=95=E3=81=9BMETHOD=5FSAFE=E3=82=92=E4=BB=98=E4=B8=8E?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../Script/Parser/LogicalLineParser.cs        | 107 ++++--------------
+ .../Script/Statements/Instraction.Child.cs    |  73 +++++++++++-
+ 2 files changed, 92 insertions(+), 88 deletions(-)
+
+diff --git a/Emuera/Runtime/Script/Parser/LogicalLineParser.cs b/Emuera/Runtime/Script/Parser/LogicalLineParser.cs
+index e1c8d3d..78be900 100644
+--- a/Emuera/Runtime/Script/Parser/LogicalLineParser.cs
++++ b/Emuera/Runtime/Script/Parser/LogicalLineParser.cs
+@@ -426,107 +426,44 @@ internal static class LogicalLineParser
+ 						{
+ 							ParentLabelLine = parentLine
+ 						};
+-						var statementsSpan = line.PopArgumentPrimitive().SubstringROS();
++						//統合_netEmuera: ここでは変数の宣言だけ行い、右辺は消費しない。
++						//右辺の解析は VARI/VARS_Instruction.CreateArgument に任せる
++						//（この時点ではユーザ定義関数がまだ登録されていないため）
++						var statementsSpan = stream.SubstringROS();
+ 						var commentIndex = statementsSpan.IndexOf(';');
+ 						if (commentIndex != -1)
+ 						{
+ 							statementsSpan = statementsSpan[..commentIndex];
+ 						}
+ 
++						//右辺は CreateArgument が読むので、ここでは左辺だけ見る
+ 						var equalsIndex = statementsSpan.IndexOf('=');
+-						string left;
+-						ReadOnlySpan<char> right = "";
+-						if (equalsIndex == -1)
+-						{
+-							left = statementsSpan.ToString();
+-						}
+-						else
+-						{
+-							left = statementsSpan[..equalsIndex].ToString();
+-							right = statementsSpan[(equalsIndex + 1)..];
+-						}
++						string left = equalsIndex == -1
++							? statementsSpan.ToString()
++							: statementsSpan[..equalsIndex].ToString();
+ 
+ 						var leftSplit = left.Split(',');
+ 						var varName = leftSplit[0].Trim();
+ 						List<int> lengths = [1];
+-						if (func.Code == FunctionCode.VARI)
++						if (leftSplit.Length > 1)
+ 						{
+-							AExpression exp = null;
+-							if (leftSplit.Length > 1)
+-							{
+-								//配列である
+-								lengths.Clear();
+-								for (int i = 1; i < leftSplit.Length; i++)
+-								{
+-									lengths.Add(int.Parse(leftSplit[i].Trim()));
+-								}
+-							}
+-							else
+-							{
+-								//初期値がある
+-								if (!right.IsWhiteSpace())
+-								{
+-									GlobalStatic.Process.scaningLine = line;
+-									var wc = LexicalAnalyzer.Analyse(new CharStream(right.ToString()), LexEndWith.EoL, LexAnalyzeFlag.None);
+-									exp = ExpressionParser.ReduceIntegerTerm(wc, TermEndWith.EoL);
+-								}
+-							}
+-							var varData = new UserDefinedVariableData
+-							{
+-								Name = varName,
+-								Static = false,
+-								Lengths = [.. lengths],
+-								Dimension = lengths.Count,
+-								TypeIsStr = false
+-							};
+-							parentLine.AddPrivateVariable(varData);
+-
+-							if (exp != null)
++							//配列である
++							lengths.Clear();
++							for (int i = 1; i < leftSplit.Length; i++)
+ 							{
+-								line.Argument = new IntAsignArgument(varName, [.. lengths], exp);
++								lengths.Add(int.Parse(leftSplit[i].Trim()));
+ 							}
+-							else
+-							{
+-								line.Argument = new IntAsignArgument(varName, [.. lengths], new SingleLongTerm(default));
+-							}
+-							return line;
+ 						}
+-						else if (func.Code == FunctionCode.VARS)
++						var varData = new UserDefinedVariableData
+ 						{
+-							string value = default;
+-							if (leftSplit.Length > 1)
+-							{
+-								//配列である
+-								lengths.Clear();
+-								for (int i = 1; i < leftSplit.Length; i++)
+-								{
+-									lengths.Add(int.Parse(leftSplit[i].Trim()));
+-								}
+-							}
+-							else
+-							{
+-								//初期値がある
+-								if (!right.IsWhiteSpace())
+-								{
+-									var literalStart = right.IndexOf('\"');
+-									var literalEnd = right.LastIndexOf('\"');
+-									value = right[(literalStart + 1)..literalEnd].ToString();
+-								}
+-							}
+-
+-							var varData = new UserDefinedVariableData
+-							{
+-								Name = varName,
+-								Static = false,
+-								Lengths = [.. lengths],
+-								Dimension = lengths.Count,
+-								TypeIsStr = true
+-							};
+-							parentLine.AddPrivateVariable(varData);
+-
+-							line.Argument = new StrAsignArgument(varName, varData.Lengths, value);
+-							return line;
+-						}
++							Name = varName,
++							Static = false,
++							Lengths = [.. lengths],
++							Dimension = lengths.Count,
++							TypeIsStr = func.Code == FunctionCode.VARS
++						};
++						parentLine.AddPrivateVariable(varData);
++						return line;
+ 					}
+ 
+ 					if (stream.EOS) //引数の無い関数
+diff --git a/Emuera/Runtime/Script/Statements/Instraction.Child.cs b/Emuera/Runtime/Script/Statements/Instraction.Child.cs
+index bec5b21..9d40ea0 100644
+--- a/Emuera/Runtime/Script/Statements/Instraction.Child.cs
++++ b/Emuera/Runtime/Script/Statements/Instraction.Child.cs
+@@ -33,11 +33,17 @@ internal sealed partial class FunctionIdentifier
+ 	#region Emuera.NET VAR命令
+ 	private sealed class VARI_Instruction : AInstruction
+ 	{
++		//統合_netEmuera: METHOD_SAFE が無いと #FUNCTION 中で使えない
++		public VARI_Instruction()
++		{
++			flag = EXTENDED | METHOD_SAFE;
++		}
++
+ 		public override void DoInstruction(ExpressionMediator exm, InstructionLine func, ProcessState state)
+ 		{
+ 			var arg = (IntAsignArgument)func.Argument;
+ 			var varName = arg.ConstStr;
+-	
++
+ 			var privateVar = func.ParentLabelLine.GetPrivateVariable(varName);
+ 			privateVar.ScopeIn();
+ 			if (privateVar.GetLength(0) == 1)
+@@ -50,13 +56,30 @@ internal sealed partial class FunctionIdentifier
+ 			}
+ 		}
+ 
++		//統合_netEmuera: 右辺の式解析はここで行う。
++		//LogicalLineParser の時点ではユーザ定義関数がまだ登録されておらず、
++		//VARI X = ユーザ定義関数(...) を解釈できないため。
+ 		public override Argument CreateArgument(InstructionLine line, ExpressionMediator exm)
+ 		{
+-			return null;
++			SplitVarStatement(line, out string varName, out List<int> lengths, out ReadOnlySpan<char> right);
++
++			AExpression exp = null;
++			if (lengths.Count == 1 && !right.IsWhiteSpace())
++			{
++				var wc = LexicalAnalyzer.Analyse(new CharStream(right.ToString()), LexEndWith.EoL, LexAnalyzeFlag.None);
++				exp = ExpressionParser.ReduceIntegerTerm(wc, TermEndWith.EoL);
++			}
++			return new IntAsignArgument(varName, [.. lengths], exp ?? new SingleLongTerm(default));
+ 		}
+ 	}
+ 	private sealed class VARS_Instruction : AInstruction
+ 	{
++		//統合_netEmuera: METHOD_SAFE が無いと #FUNCTION 中で使えない
++		public VARS_Instruction()
++		{
++			flag = EXTENDED | METHOD_SAFE;
++		}
++
+ 		public override void DoInstruction(ExpressionMediator exm, InstructionLine func, ProcessState state)
+ 		{
+ 			var arg = (StrAsignArgument)func.Argument;
+@@ -76,7 +99,51 @@ internal sealed partial class FunctionIdentifier
+ 
+ 		public override Argument CreateArgument(InstructionLine line, ExpressionMediator exm)
+ 		{
+-			return null;
++			SplitVarStatement(line, out string varName, out List<int> lengths, out ReadOnlySpan<char> right);
++
++			string value = default;
++			if (lengths.Count == 1 && !right.IsWhiteSpace())
++			{
++				var literalStart = right.IndexOf('\"');
++				var literalEnd = right.LastIndexOf('\"');
++				value = right[(literalStart + 1)..literalEnd].ToString();
++			}
++			return new StrAsignArgument(varName, [.. lengths], value);
++		}
++	}
++
++	/// <summary>
++	/// 統合_netEmuera: VARI/VARS の「変数名（, 要素数...）（= 右辺）」を分解する。
++	/// 要素数が指定された場合は配列宣言なので右辺は空のまま返す。
++	/// </summary>
++	private static void SplitVarStatement(InstructionLine line, out string varName, out List<int> lengths, out ReadOnlySpan<char> right)
++	{
++		var statementsSpan = line.PopArgumentPrimitive().SubstringROS();
++		var commentIndex = statementsSpan.IndexOf(';');
++		if (commentIndex != -1)
++			statementsSpan = statementsSpan[..commentIndex];
++
++		var equalsIndex = statementsSpan.IndexOf('=');
++		string left;
++		right = "";
++		if (equalsIndex == -1)
++		{
++			left = statementsSpan.ToString();
++		}
++		else
++		{
++			left = statementsSpan[..equalsIndex].ToString();
++			right = statementsSpan[(equalsIndex + 1)..];
++		}
++
++		var leftSplit = left.Split(',');
++		varName = leftSplit[0].Trim();
++		lengths = [1];
++		if (leftSplit.Length > 1)
++		{
++			lengths.Clear();
++			for (int i = 1; i < leftSplit.Length; i++)
++				lengths.Add(int.Parse(leftSplit[i].Trim()));
+ 		}
+ 	}
+ 	#endregion
+-- 
+2.51.0.windows.1
+

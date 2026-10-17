@@ -1,0 +1,556 @@
+{
+  "retrieved": "2026-09-29",
+  "catalog_count": 62,
+  "selection": "all unique direct ZIP downloads on the three game categories",
+  "games": [
+    {
+      "name": "eraTheWorld",
+      "lastModified": "Wed, 24 Aug 2022 05:42:20 GMT",
+      "sha256": "23e89f6fe1ae26150b10e18cef844bc93f36f9c41604e7ca2e24d0327e5d7c18",
+      "entries": 5679,
+      "expandedBytes": 177492658,
+      "download": "ok",
+      "bytes": 91781309
+    },
+    {
+      "name": "eratohoYMAEM",
+      "lastModified": "Tue, 14 Feb 2023 07:24:56 GMT",
+      "sha256": "bed8ca4257bfa53612ead60dbcdcfe1c8635a1acc29c0ffe24b80c23b88e303d",
+      "entries": 2335,
+      "expandedBytes": 61464159,
+      "download": "ok",
+      "bytes": 17053621
+    },
+    {
+      "name": "eratohoЯeverse",
+      "sha256": "5096698c00e50625e103a19ce7d041bf250e7b749ef2587b979162ed4ddfe9c0",
+      "entries": 1533,
+      "expandedBytes": 30788873,
+      "download": "ok",
+      "bytes": 7170053
+    },
+    {
+      "name": "eratohoT",
+      "lastModified": "Wed, 17 Aug 2022 10:19:43 GMT",
+      "sha256": "a0b8e71911a114cdb9798c561fa8bc07de622e6f864f1e547c5668948fd975e8",
+      "entries": 398,
+      "expandedBytes": 2583509,
+      "download": "ok",
+      "bytes": 929959
+    },
+    {
+      "name": "eratohoPM",
+      "lastModified": "Sat, 04 Feb 2023 11:01:34 GMT",
+      "sha256": "eb842ec84ce5c59cedbb8c8a57a9c0030be677098d9073e54bd08b7e2cc33a82",
+      "entries": 541,
+      "expandedBytes": 8032933,
+      "download": "ok",
+      "bytes": 3810317
+    },
+    {
+      "name": "eratohoSB_koumakan",
+      "lastModified": "Sat, 13 Aug 2022 14:44:15 GMT",
+      "sha256": "3987708adc07b1a4ab3b796021f2afcb3d25115baf1f9c58951297ba795bc272",
+      "entries": 323,
+      "expandedBytes": 4031816,
+      "download": "ok",
+      "bytes": 1010738
+    },
+    {
+      "name": "eratohoKaguya",
+      "lastModified": "Wed, 14 Sep 2022 13:27:31 GMT",
+      "sha256": "09b1d86dc540a43c5e20ac14c915dff8744fd68d5180281f1954fe3050fd904b",
+      "entries": 119,
+      "expandedBytes": 1587551,
+      "download": "ok",
+      "bytes": 603521
+    },
+    {
+      "name": "eratohoLoA",
+      "lastModified": "Sat, 13 Aug 2022 16:18:57 GMT",
+      "sha256": "06a4cf3240900dea7c3d48c7f5098180517fbc278c10df5e80527b062a1e3b23",
+      "entries": 693,
+      "expandedBytes": 12604391,
+      "download": "ok",
+      "bytes": 11370918
+    },
+    {
+      "name": "eratohoK",
+      "lastModified": "Wed, 14 Sep 2022 00:59:44 GMT",
+      "sha256": "cf2a056c7472c1b4436f02f526289d4108b29bc9722f084190a7b15c0f668f90",
+      "entries": 3927,
+      "expandedBytes": 135389361,
+      "download": "ok",
+      "bytes": 88985986
+    },
+    {
+      "name": "eratohoJ",
+      "lastModified": "Sat, 13 Aug 2022 14:59:45 GMT",
+      "sha256": "1b34cb254f8a6f2718cf0e8f3b9deb3af0267a719472b52501022d4f5ceda9bf",
+      "entries": 537,
+      "expandedBytes": 8437893,
+      "download": "ok",
+      "bytes": 1994586
+    },
+    {
+      "name": "eraNeoNew",
+      "lastModified": "Fri, 23 Sep 2022 12:00:01 GMT",
+      "sha256": "f3555436741f554d976afb7bdbe21203110dca1a772748987a0a1d322913bca7",
+      "entries": 339,
+      "expandedBytes": 3018120,
+      "download": "ok",
+      "bytes": 795913
+    },
+    {
+      "name": "eratoho触手変",
+      "lastModified": "Sat, 13 Aug 2022 14:14:50 GMT",
+      "sha256": "2e2daa773e7636f19048e3a6ddf2e27f1c9eda61ebb2d8d727c2da25af76f681",
+      "entries": 518,
+      "expandedBytes": 2044175,
+      "download": "ok",
+      "bytes": 799413
+    },
+    {
+      "name": "eratohoShokushuPalace",
+      "lastModified": "Sat, 13 Aug 2022 15:38:00 GMT",
+      "sha256": "f6326adc13de4a4ec6afd61e96820d6d8a8e006f40613f18fa8c7bd929fed017",
+      "entries": 2062,
+      "expandedBytes": 20671366,
+      "download": "ok",
+      "bytes": 6034745
+    },
+    {
+      "name": "eratohoReversedShokushuPalace",
+      "sha256": "1cba0b81db729dd65eef2cb80790c5c84b74334597c2b63732d1996f2172c68f",
+      "entries": 3305,
+      "expandedBytes": 20918997,
+      "download": "ok",
+      "bytes": 6583443
+    },
+    {
+      "name": "eraKoumakanprotoNTR",
+      "lastModified": "Sat, 13 Aug 2022 15:02:21 GMT",
+      "sha256": "1644e339d119c298e7c2f94d469f30ebcb6ce1cf40b41364a1f5e3a48d6fc50f",
+      "entries": 476,
+      "expandedBytes": 11480127,
+      "download": "ok",
+      "bytes": 2259172
+    },
+    {
+      "name": "era永琳通",
+      "lastModified": "Sat, 01 Oct 2022 15:32:52 GMT",
+      "sha256": "dc51eafa42e5770cd6d4926ec2efca8e8708a4833b6e8865b151d367afed3b7a",
+      "entries": 2577,
+      "expandedBytes": 19603919,
+      "download": "ok",
+      "bytes": 13004787
+    },
+    {
+      "name": "eraMegaten",
+      "lastModified": "Fri, 04 Nov 2022 09:07:42 GMT",
+      "sha256": "67f53cf8084cc44700758c16dcc98a0a2df5397a46efac6bf68170f1de5b6c6d",
+      "entries": 11818,
+      "expandedBytes": 255083583,
+      "download": "ok",
+      "bytes": 122341264
+    },
+    {
+      "name": "eraSQC",
+      "sha256": "bef3628e07bd1a45131373f18280c6f2a23f70606153700a755b018c6c4c8b3d",
+      "entries": 1400,
+      "expandedBytes": 159999239,
+      "download": "ok",
+      "bytes": 127176240
+    },
+    {
+      "name": "eraFGOK",
+      "lastModified": "Sat, 13 Aug 2022 16:52:50 GMT",
+      "sha256": "3210392dc86f047a17ce8c5dfbbfff2d1598e3717cf0c3b62ee63b0d33d16eee",
+      "entries": 3202,
+      "expandedBytes": 55559617,
+      "download": "ok",
+      "bytes": 41537536
+    },
+    {
+      "name": "eraTohloveKH",
+      "lastModified": "Sat, 13 Aug 2022 16:06:34 GMT",
+      "sha256": "08c107b3ca7aa0aaa5dc1f6374e3eedf3cebce5c6a7c8664140659ea03b4e2b1",
+      "entries": 765,
+      "expandedBytes": 29159664,
+      "download": "ok",
+      "bytes": 11212409
+    },
+    {
+      "name": "eraTohloveR",
+      "lastModified": "Sat, 13 Aug 2022 15:58:09 GMT",
+      "sha256": "4d445810cd300d8276059b881e451b22028e1f1fa9797e0f74dcb899ab4a0fcc",
+      "entries": 438,
+      "expandedBytes": 19543889,
+      "download": "ok",
+      "bytes": 8070809
+    },
+    {
+      "name": "eraShingeki",
+      "lastModified": "Sat, 13 Aug 2022 15:48:22 GMT",
+      "sha256": "677ef7b8bdf2205ef08ac3fffd3bcf21eb9dfb33ce7db7d794a0ba9157fb4646",
+      "entries": 319,
+      "expandedBytes": 9279902,
+      "download": "ok",
+      "bytes": 6797863
+    },
+    {
+      "name": "eraMobaMasJ",
+      "lastModified": "Sat, 13 Aug 2022 15:02:46 GMT",
+      "sha256": "9fc6222fc84ca93ebda291201deac24474e2c7b650d45de8b76c0e993846df5c",
+      "entries": 813,
+      "expandedBytes": 12481237,
+      "download": "ok",
+      "bytes": 3036400
+    },
+    {
+      "name": "eraKanColle+SJ",
+      "lastModified": "Sun, 21 Aug 2022 02:09:02 GMT",
+      "sha256": "560a219b5add526d7e554c1c13480b115c894c617148e03a0fe5c79f00f9228e",
+      "entries": 2010,
+      "expandedBytes": 45666868,
+      "download": "ok",
+      "bytes": 34472947
+    },
+    {
+      "name": "erahetaR",
+      "lastModified": "Sat, 13 Aug 2022 15:37:56 GMT",
+      "sha256": "b05859358bca9b7aab4cd18ab00bbf563cc1a0eb098069367e925e095a5cdb47",
+      "entries": 634,
+      "expandedBytes": 19088456,
+      "download": "ok",
+      "bytes": 5937901
+    },
+    {
+      "name": "erajogio",
+      "lastModified": "Sat, 13 Aug 2022 15:47:44 GMT",
+      "sha256": "df280ffd0b95bf7cfe9badbb10581303bbd002918405e5c74a8b640ab76ec750",
+      "entries": 507,
+      "expandedBytes": 12572347,
+      "download": "ok",
+      "bytes": 6289011
+    },
+    {
+      "name": "eraInSchoolA統合私家版",
+      "lastModified": "Sat, 13 Aug 2022 17:45:52 GMT",
+      "sha256": "55616ce21f525af8b22be13a7318b8ae37cef523bccdd60d0bda65471e6ab790",
+      "entries": 3382,
+      "expandedBytes": 22052563,
+      "download": "ok",
+      "bytes": 7316914
+    },
+    {
+      "name": "eraSumireTeru",
+      "lastModified": "Sat, 13 Aug 2022 16:54:41 GMT",
+      "sha256": "32993880ec33f7072f0c46ad6e67658ff5cb55fb6a946e278bf0a6fac3cf0dc0",
+      "entries": 1018,
+      "expandedBytes": 139550375,
+      "download": "ok",
+      "bytes": 76613230
+    },
+    {
+      "name": "eratype-moon",
+      "lastModified": "Sat, 13 Aug 2022 15:02:10 GMT",
+      "sha256": "f77c962e62fd124e9a992290daaf00441b7bafe564fd3c5f6421caad3adc1812",
+      "entries": 505,
+      "expandedBytes": 8155431,
+      "download": "ok",
+      "bytes": 2070674
+    },
+    {
+      "name": "eraH",
+      "lastModified": "Sat, 13 Aug 2022 15:37:11 GMT",
+      "sha256": "d01ab079e56511f4fd3dcbac5389b0bfe8c6f44f91d54b621eb629f1e789fe20",
+      "entries": 2525,
+      "expandedBytes": 14386805,
+      "download": "ok",
+      "bytes": 4802164
+    },
+    {
+      "name": "eraKoihime",
+      "lastModified": "Sat, 13 Aug 2022 15:02:41 GMT",
+      "sha256": "b2714d0ee48a883ab340759b77701f1a2abed89d129b07b33b011824e26ad955",
+      "entries": 657,
+      "expandedBytes": 15850500,
+      "download": "ok",
+      "bytes": 2741072
+    },
+    {
+      "name": "eraBlue-Archive",
+      "lastModified": "Sat, 13 Aug 2022 14:29:50 GMT",
+      "sha256": "d64ad876f61078b4b714b290f2e84f4f9f518515779c886eb211b6d95cf8de3b",
+      "entries": 288,
+      "expandedBytes": 4057065,
+      "download": "ok",
+      "bytes": 1009256
+    },
+    {
+      "name": "eraMeiQGaiden",
+      "lastModified": "Sat, 13 Aug 2022 15:29:12 GMT",
+      "sha256": "29e026ba5701822b51c5728636a4774a75faa7549f61aeb2606d93c9e2713ad1",
+      "entries": 1087,
+      "expandedBytes": 14538271,
+      "download": "ok",
+      "bytes": 3042581
+    },
+    {
+      "name": "eraALK",
+      "lastModified": "Mon, 12 Sep 2022 14:05:36 GMT",
+      "sha256": "3b2fe22a5f91018ca9d9304616bd69cfbc6547b2ead6680a19489da740bcfc56",
+      "entries": 3790,
+      "expandedBytes": 37136893,
+      "download": "ok",
+      "bytes": 13297782
+    },
+    {
+      "name": "eraSekaQ",
+      "lastModified": "Sat, 13 Aug 2022 15:22:01 GMT",
+      "sha256": "ba6a6e03633048297f0a5e63c0155d4ec8a042baeb5d9af7887fba631c0280fe",
+      "entries": 1264,
+      "expandedBytes": 11670883,
+      "download": "ok",
+      "bytes": 3872480
+    },
+    {
+      "name": "eraTW-FGO",
+      "sha256": "85a3bbfe3488ed2f64b01ffd7b6957c76b5c29326372825e51dca99b168b1447",
+      "entries": 1705,
+      "expandedBytes": 12634104,
+      "download": "ok",
+      "bytes": 3553291
+    },
+    {
+      "name": "eraimascgpro",
+      "lastModified": "Sat, 13 Aug 2022 16:19:09 GMT",
+      "sha256": "4f3fea0de083799e938e9d4d048c12b7103c24253904c330dd4bb28a8d7c1656",
+      "entries": 1237,
+      "expandedBytes": 18695967,
+      "download": "ok",
+      "bytes": 11905144
+    },
+    {
+      "name": "erahetaCPM",
+      "lastModified": "Sat, 13 Aug 2022 14:59:11 GMT",
+      "sha256": "f8c9da389b3d4f14ba491490cb1c368e0ea2ca49764548b47044d46100bf14bc",
+      "entries": 611,
+      "expandedBytes": 7967612,
+      "download": "ok",
+      "bytes": 1937918
+    },
+    {
+      "name": "era淫妖蟲NTR(開發中)",
+      "lastModified": "Sun, 12 Feb 2023 06:45:49 GMT",
+      "sha256": "acc208e7e4832dec0829a43b94370f645e12117c2f8c22ad75086aef2bde5044",
+      "entries": 252,
+      "expandedBytes": 4986692,
+      "download": "ok",
+      "bytes": 962577
+    },
+    {
+      "name": "eraAkumaMaid",
+      "lastModified": "Sun, 09 Oct 2022 10:17:19 GMT",
+      "sha256": "e33875c7a8a6a685d28d4a4be73ccc90ff8967dc880a9601dda41d6d69f98a43",
+      "entries": 2857,
+      "expandedBytes": 71090618,
+      "download": "ok",
+      "bytes": 38707457
+    },
+    {
+      "name": "era魔界牧場",
+      "lastModified": "Sat, 04 Feb 2023 11:04:27 GMT",
+      "sha256": "b7f73785781c58ed76951cbc479a600a7a4e6727e7b9c3e15e9c696ded1201b3",
+      "entries": 649,
+      "expandedBytes": 7492093,
+      "download": "ok",
+      "bytes": 5125916
+    },
+    {
+      "name": "eraQueenA",
+      "lastModified": "Sat, 13 Aug 2022 15:37:13 GMT",
+      "sha256": "24a537189df3b795075d829590d9fc8ba8579d136e7096c27c2005feb2055842",
+      "entries": 1005,
+      "expandedBytes": 15299806,
+      "download": "ok",
+      "bytes": 4785629
+    },
+    {
+      "name": "eraRL2",
+      "lastModified": "Sat, 13 Aug 2022 14:23:23 GMT",
+      "sha256": "f536039330d936027428ffad0768e553c762d507d764a6fd60322468151c8718",
+      "entries": 278,
+      "expandedBytes": 1870980,
+      "download": "ok",
+      "bytes": 725980
+    },
+    {
+      "name": "eraRL",
+      "sha256": "fadac8c48c3fa8b7fed7f2de945dd75ea6859ea679ea96fdb31ff9661f6f35d0",
+      "entries": 932,
+      "expandedBytes": 5247654,
+      "download": "ok",
+      "bytes": 1808532
+    },
+    {
+      "name": "erapog",
+      "sha256": "458af0ab3028a3ba71792edafd6c735dc3cc1ee2b5b1202c5b28560fb25329eb",
+      "entries": 1360,
+      "expandedBytes": 14394326,
+      "download": "ok",
+      "bytes": 8539109
+    },
+    {
+      "name": "eraMaouEx",
+      "lastModified": "Wed, 17 Aug 2022 10:29:36 GMT",
+      "sha256": "cce0b88f8c7ebb204446a195b3f8abf6f3d819622e82d68c9564506390bb69a9",
+      "entries": 649,
+      "expandedBytes": 12222796,
+      "download": "ok",
+      "bytes": 3136468
+    },
+    {
+      "name": "eraJK",
+      "lastModified": "Sat, 13 Aug 2022 14:27:47 GMT",
+      "sha256": "7c8257acc42f9830e7ebb5ffab6380f51c86c3509508cbee89687b44fb921ecf",
+      "entries": 374,
+      "expandedBytes": 2507329,
+      "download": "ok",
+      "bytes": 836028
+    },
+    {
+      "name": "eraRPG",
+      "lastModified": "Sat, 13 Aug 2022 17:41:46 GMT",
+      "sha256": "01ce0d2f4110d059ac99a547eb490a5d79c4062bd3d071a97611756a5fa65826",
+      "entries": 318,
+      "expandedBytes": 12687040,
+      "download": "ok",
+      "bytes": 7427392
+    },
+    {
+      "name": "eraSAS",
+      "sha256": "93f21771cdd22f79d0d789b0b77b092389a6e462ad376547e097f10bd36af16c",
+      "entries": 293,
+      "expandedBytes": 2735668,
+      "download": "ok",
+      "bytes": 827719
+    },
+    {
+      "name": "eraKGB",
+      "lastModified": "Sat, 13 Aug 2022 15:29:25 GMT",
+      "sha256": "9157299e3117203cfcfc592191aff2840da84bdc450c667eec5a1b0b556a6675",
+      "entries": 167,
+      "expandedBytes": 9974773,
+      "download": "ok",
+      "bytes": 3414428
+    },
+    {
+      "name": "eraGVT",
+      "sha256": "dd04057030f744a32d3759cd2468c1e955b0e9d695f4ee28fb7e48c75bfe0a45",
+      "entries": 680,
+      "expandedBytes": 12689634,
+      "download": "ok",
+      "bytes": 4181419
+    },
+    {
+      "name": "eraAWT",
+      "lastModified": "Thu, 01 Sep 2022 05:57:33 GMT",
+      "sha256": "4ba7d16e0b5e377a2aaac7ee2f7cb834f20f6b2b6e840380137413f3ae700cec",
+      "entries": 2789,
+      "expandedBytes": 19023267,
+      "download": "ok",
+      "bytes": 8196773
+    },
+    {
+      "name": "eraAS",
+      "lastModified": "Thu, 15 Sep 2022 15:51:03 GMT",
+      "sha256": "4e8b814fb76a57ba39bd11267c389f3835aec7b4c511ffd7fa2d497b3c9e1fe7",
+      "entries": 776,
+      "expandedBytes": 7471057,
+      "download": "ok",
+      "bytes": 4211901
+    },
+    {
+      "name": "eraYABOU",
+      "sha256": "a270b402185e6ea54b92d5f0999082d9590f0364766dc774b79520d4aa56bc76",
+      "entries": 236,
+      "expandedBytes": 2368653,
+      "download": "ok",
+      "bytes": 627627
+    },
+    {
+      "name": "eraCatSarnia",
+      "lastModified": "Sat, 13 Aug 2022 15:02:40 GMT",
+      "sha256": "46c40f990fc4d82bf05f98a016a8e8531f10521e5f26b2f7b4300e4f3941ec56",
+      "entries": 428,
+      "expandedBytes": 13140806,
+      "download": "ok",
+      "bytes": 2589081
+    },
+    {
+      "name": "eraVampire",
+      "lastModified": "Sat, 13 Aug 2022 14:22:11 GMT",
+      "sha256": "0cc31a6eccdcf06a4294dda33e0d70e36448d5bcd3742b76f5473a957a934379",
+      "entries": 85,
+      "expandedBytes": 1558678,
+      "download": "ok",
+      "bytes": 492282
+    },
+    {
+      "name": "era俄羅斯方塊",
+      "lastModified": "Wed, 26 Oct 2022 15:46:21 GMT",
+      "sha256": "f7da7e7c3804194958f5ddfad19cb9c85e2a7f1cd637fb26153cf0c888c78494",
+      "entries": 11,
+      "expandedBytes": 806007,
+      "download": "ok",
+      "bytes": 270404
+    },
+    {
+      "name": "era4X",
+      "sha256": "7e625c6764bcc133f9a6709dfa77ad6ff603f6c719116e5ac967bb00f9ce3e43",
+      "entries": 601,
+      "expandedBytes": 5552155,
+      "download": "ok",
+      "bytes": 1395648
+    },
+    {
+      "name": "eraAV",
+      "lastModified": "Mon, 06 Feb 2023 12:25:30 GMT",
+      "sha256": "80bc9a41171ca0b472c6c27d4e1871af920d4d02ef99a74e3362546f07d76b91",
+      "entries": 696,
+      "expandedBytes": 7849131,
+      "download": "ok",
+      "bytes": 2256776
+    },
+    {
+      "name": "eraDuo",
+      "lastModified": "Tue, 06 Sep 2022 16:27:57 GMT",
+      "sha256": "3e5c7f2b986bbcb68904b8166e74fc15e5ffc2b3e7a762f93c0edd81073edb56",
+      "entries": 156,
+      "expandedBytes": 2091581,
+      "download": "ok",
+      "bytes": 825071
+    },
+    {
+      "name": "era麻雀",
+      "lastModified": "Mon, 07 Nov 2022 08:43:26 GMT",
+      "sha256": "884807e67c6a8103199010d69044a970044156336362870b074c4a54c66eb31b",
+      "entries": 126,
+      "expandedBytes": 9139063,
+      "download": "ok",
+      "bytes": 7475727
+    },
+    {
+      "name": "eraCOG",
+      "lastModified": "Thu, 29 Dec 2022 08:52:41 GMT",
+      "sha256": "0bc325927ba0117ebaae0056e2a3fe0fe2e4dbc357689363a0a3364b8c472260",
+      "entries": 29,
+      "expandedBytes": 2020869,
+      "download": "ok",
+      "bytes": 733441
+    }
+  ],
+  "note": "Download URLs are intentionally omitted from the published source; only game names, sizes and hashes are recorded."
+}

@@ -1,0 +1,502 @@
+diff --git a/Emuera/Runtime/Config/Config.cs b/Emuera/Runtime/Config/Config.cs
+index 4dc3ee7..dc0cd67 100644
+--- a/Emuera/Runtime/Config/Config.cs
++++ b/Emuera/Runtime/Config/Config.cs
+@@ -346,9 +346,8 @@ internal static class Config
+ 
+ 	private static long getUpdateKey()
+ 	{
+-		SearchOption option = SearchOption.TopDirectoryOnly;
+-		if (SearchSubdirectory)
+-			option = SearchOption.AllDirectories;
++		//andEmuera: Android では検索パターンの大文字小文字が区別されるため非依存で列挙する
++		var option = SearchSubdirectory ? CaseInsensitiveAllDirectories : CaseInsensitiveTopDirectory;
+ 		string[] erbFiles = Directory.GetFiles(Program.ErbDir, "*.ERB", option);
+ 		string[] csvFiles = Directory.GetFiles(Program.CsvDir, "*.CSV", option);
+ 		long[] writetimes = new long[erbFiles.Length + csvFiles.Length];
+@@ -370,6 +369,28 @@ internal static class Config
+ 	}
+ 
+ 
++	//andEmuera: 大文字小文字を区別しないファイル列挙オプション (Android 対応)
++	//MatchType / AttributesToSkip は EnumerationOptions の既定 (Simple / Hidden|System) ではなく
++	//SearchOption 版と同じ値を明示する。ENUMFILES は ERB が任意のパターン ("*.*" など) を渡すため、
++	//既定のままだと Windows 版と結果が食い違う。
++	internal static readonly EnumerationOptions CaseInsensitiveTopDirectory = new()
++	{
++		MatchCasing = MatchCasing.CaseInsensitive,
++		MatchType = MatchType.Win32,
++		AttributesToSkip = 0,
++		RecurseSubdirectories = false,
++		IgnoreInaccessible = true,
++	};
++
++	internal static readonly EnumerationOptions CaseInsensitiveAllDirectories = new()
++	{
++		MatchCasing = MatchCasing.CaseInsensitive,
++		MatchType = MatchType.Win32,
++		AttributesToSkip = 0,
++		RecurseSubdirectories = true,
++		IgnoreInaccessible = true,
++	};
++
+ 	public static List<KeyValuePair<string, string>> GetFiles(string rootdir, string pattern)
+ 	{
+ 		return getFiles(rootdir, rootdir, pattern, !SearchSubdirectory, SortWithFilename);
+@@ -398,7 +419,9 @@ internal static class Config
+ 				RelativePath += "\\";//末尾が\又は/で終わるように。後でFile名を直接加算できるようにしておく
+ 		}
+ 		//filepathsは完全パスである
+-		string[] filepaths = Directory.GetFiles(dir, pattern, SearchOption.TopDirectoryOnly);
++		//andEmuera: Windows は検索パターンの大文字小文字を区別しないが、Android(ext4)は区別する。
++		//"*.CSV" で ".csv" のファイルを取りこぼさないよう、明示的に大文字小文字非依存で列挙する。
++		string[] filepaths = Directory.GetFiles(dir, pattern, CaseInsensitiveTopDirectory);
+ 		if (sort)
+ 			Array.Sort(filepaths);
+ 		for (int i = 0; i < filepaths.Length; i++)
+diff --git a/Emuera/Runtime/Script/Data/ConstantData.cs b/Emuera/Runtime/Script/Data/ConstantData.cs
+index 8956939..4da73fa 100644
+--- a/Emuera/Runtime/Script/Data/ConstantData.cs
++++ b/Emuera/Runtime/Script/Data/ConstantData.cs
+@@ -1286,7 +1286,8 @@ internal sealed class ConstantData
+ 		SaveMaps.Clear();
+ 		StaticMaps.Clear();
+ 		StaticXmls.Clear();
+-		foreach (var path in Directory.GetFiles(csvPath, "VarExt*.csv", SearchOption.AllDirectories))
++		//andEmuera: Android では検索パターンの大文字小文字が区別されるため非依存で列挙する
++		foreach (var path in Directory.GetFiles(csvPath, "VarExt*.csv", Config.Config.CaseInsensitiveAllDirectories))
+ 		{
+ 			using var eReader = new EraStreamReader(false);
+ 			if (!eReader.Open(path))
+@@ -1766,7 +1767,8 @@ internal sealed class ConstantData
+ 			eReader.Close();
+ 		}
+ 
+-		var aliasPath = Path.GetDirectoryName(csvPath) + "\\" + Path.GetFileNameWithoutExtension(csvPath) + ".als";
++		//andEmuera: Android の区切りは '/' なので Path.Combine で組み立てる
++		var aliasPath = Path.Combine(Path.GetDirectoryName(csvPath), Path.GetFileNameWithoutExtension(csvPath) + ".als");
+ 		if (File.Exists(aliasPath))
+ 		{
+ 			loadAliases(aliasPath, targetIndex);
+diff --git a/Emuera/Runtime/Script/Loader/ErhLoader.cs b/Emuera/Runtime/Script/Loader/ErhLoader.cs
+index cc451e1..c348de6 100644
+--- a/Emuera/Runtime/Script/Loader/ErhLoader.cs
++++ b/Emuera/Runtime/Script/Loader/ErhLoader.cs
+@@ -364,7 +364,8 @@ internal sealed class ErhLoader
+ 	private void PrepareERDFileNames()
+ 	{
+ 		if (erdFileNames == null) erdFileNames = [];
+-		foreach (var path in Directory.GetFiles(Program.ErbDir, "*.erd", SearchOption.AllDirectories))
++		//andEmuera: Android では検索パターンの大文字小文字が区別されるため非依存で列挙する
++		foreach (var path in Directory.GetFiles(Program.ErbDir, "*.erd", Config.Config.CaseInsensitiveAllDirectories))
+ 		{
+ 			var key = Path.GetFileNameWithoutExtension(path).ToUpper();
+ 			if (!erdFileNames.ContainsKey(key))
+diff --git a/Emuera/Runtime/Script/Statements/ExpressionMediator.cs b/Emuera/Runtime/Script/Statements/ExpressionMediator.cs
+index 6578773..1be07a3 100644
+--- a/Emuera/Runtime/Script/Statements/ExpressionMediator.cs
++++ b/Emuera/Runtime/Script/Statements/ExpressionMediator.cs
+@@ -65,14 +65,15 @@ internal sealed class ExpressionMediator
+ 	{
+ 		if (!(forceHiragana | forceKatakana | halftoFull))
+ 			return str;
++		//andEmuera: Strings.StrConv は Windows の NLS API 依存で Android では例外になるため自前実装に置き換え
+ 		if (forceKatakana)
+-			return Strings.StrConv(str, VbStrConv.Katakana, 0x0411);
++			return JapaneseText.ToKatakana(str);
+ 		else if (forceHiragana)
+ 		{
+ 			if (halftoFull)
+-				return Strings.StrConv(str, VbStrConv.Hiragana | VbStrConv.Wide, 0x0411);
++				return JapaneseText.ToHiragana(JapaneseText.ToWide(str));
+ 			else
+-				return Strings.StrConv(str, VbStrConv.Hiragana, 0x0411);
++				return JapaneseText.ToHiragana(str);
+ 		}
+ 		return str;
+ 	}
+diff --git a/Emuera/Runtime/Script/Statements/Function/Creator.Method.cs b/Emuera/Runtime/Script/Statements/Function/Creator.Method.cs
+index 8b5c168..c3d8483 100644
+--- a/Emuera/Runtime/Script/Statements/Function/Creator.Method.cs
++++ b/Emuera/Runtime/Script/Statements/Function/Creator.Method.cs
+@@ -235,13 +235,17 @@ internal static partial class FunctionMethodCreator
+ 			var dir = Utils.GetValidPath(arguments[0].GetStrValue(exm));
+ 			if (dir == null || !Directory.Exists(dir)) return -1;
+ 			var pattern = arguments.Count > 1 ? arguments[1].GetStrValue(exm) : "*";
+-			var option = arguments.Count > 2
+-				? (arguments[2].GetIntValue(exm) == 0 ? SearchOption.TopDirectoryOnly : SearchOption.AllDirectories)
+-				: SearchOption.TopDirectoryOnly;
++			//andEmuera: Android(ext4) は検索パターンの大文字小文字を区別する。Windows と同じ結果になるよう非依存で列挙する
++			var option = arguments.Count > 2 && arguments[2].GetIntValue(exm) != 0
++				? Config.CaseInsensitiveAllDirectories
++				: Config.CaseInsensitiveTopDirectory;
+ 			string[] files;
+ 			try
+ 			{
+ 				files = Directory.EnumerateFiles(dir, pattern, option).ToArray();
++				//andEmuera: ext4 の readdir 順は不定。NTFS は名前順に返すため、
++				//「n 番目の差分」を添字で拾う ERB が Windows と同じ結果になるよう揃える
++				Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+ 				for (int i = 0; i < files.Length; i++)
+ 				{
+ 					files[i] = Path.GetRelativePath(Program.ExeDir, files[i]);
+@@ -4571,10 +4575,11 @@ internal static partial class FunctionMethodCreator
+ 					return str.ToUpper();
+ 				case StrFormType.Lower:
+ 					return str.ToLower();
++				//andEmuera: Strings.StrConv は Windows の NLS API 依存で Android では例外になるため自前実装に置き換え
+ 				case StrFormType.Half:
+-					return Microsoft.VisualBasic.Strings.StrConv(str, Microsoft.VisualBasic.VbStrConv.Narrow, Config.Language);
++					return Runtime.Utils.JapaneseText.ToNarrow(str);
+ 				case StrFormType.Full:
+-					return Microsoft.VisualBasic.Strings.StrConv(str, Microsoft.VisualBasic.VbStrConv.Wide, Config.Language);
++					return Runtime.Utils.JapaneseText.ToWide(str);
+ 			}
+ 			return "";
+ 		}
+@@ -6004,7 +6009,9 @@ internal static partial class FunctionMethodCreator
+ 					if (isRelative)
+ 						filepath = filename;
+ 					else
+-						filepath = Program.ContentDir + filename;
++						//andEmuera: ERB が '\' 区切りで書いていても Android で解決できるよう区切りを揃える。
++						//GetValidPath と違いサンドボックスはしない (上流は絶対パス指定も許している)
++						filepath = Program.ContentDir + PortablePath.Normalize(filename);
+ 				}
+ 				if (!File.Exists(filepath))
+ 					return 0;
+@@ -6989,8 +6996,12 @@ internal static partial class FunctionMethodCreator
+ 				}
+ 				else
+ 				{
+-					if (filepath.LastIndexOf('\\') >= 0)
+-						Directory.CreateDirectory(filepath.Substring(0, filepath.LastIndexOf('\\')));
++					//andEmuera: '\' 決め打ちだと Android で親フォルダが作られず、
++					//"dat\人物DT_XML.txt" という名前のファイルがゲームフォルダ直下にできてしまう
++					//(書き込みは成功するが LOADTEXT が読めず、周回引き継ぎが無言で空になる)
++					var parent = Path.GetDirectoryName(filepath);
++					if (!string.IsNullOrEmpty(parent))
++						Directory.CreateDirectory(parent);
+ 				}
+ 
+ 				File.WriteAllText(filepath, savText, Config.SaveEncode);
+@@ -7204,7 +7215,9 @@ internal static partial class FunctionMethodCreator
+ 		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
+ 		{
+ 			string str = arguments[0].GetStrValue(exm);
+-			string filepath = Path.GetFullPath(".\\sound\\" + str);
++			//andEmuera: '\' 決め打ち + カレントディレクトリ相対は Android で成立しない。
++			//PLAYSOUND (Instraction.Child.cs) と同じ SoundDir を見る
++			string filepath = Path.GetFullPath(Program.SoundDir + PortablePath.Normalize(str));
+ 			if (File.Exists(filepath))
+ 				return 1;
+ 			return 0;
+diff --git a/Emuera/Runtime/Script/Statements/Instraction.Child.cs b/Emuera/Runtime/Script/Statements/Instraction.Child.cs
+index bec5b21..24e0c64 100644
+--- a/Emuera/Runtime/Script/Statements/Instraction.Child.cs
++++ b/Emuera/Runtime/Script/Statements/Instraction.Child.cs
+@@ -2706,7 +2706,8 @@ internal sealed partial class FunctionIdentifier
+ 			else
+ 				datFilename = soundArg.Str.GetStrValue(exm);
+ 			int repeat = soundArg.Opt != null ? (int)Math.Max(soundArg.Opt.GetIntValue(exm), 1) : 1;
+-			string filepath = Path.GetFullPath(Program.SoundDir + datFilename);
++			//andEmuera: ERB が '\' 区切りで書いていても Android で解決できるよう区切りを揃える
++			string filepath = Path.GetFullPath(Program.SoundDir + PortablePath.Normalize(datFilename));
+ 			try
+ 			{
+ 				if (File.Exists(filepath))
+@@ -2769,7 +2770,8 @@ internal sealed partial class FunctionIdentifier
+ 				datFilename = arg.ConstStr;
+ 			else
+ 				datFilename = arg.Term.GetStrValue(exm);
+-			string filepath = Path.GetFullPath(Program.SoundDir + datFilename);
++			//andEmuera: ERB が '\' 区切りで書いていても Android で解決できるよう区切りを揃える
++			string filepath = Path.GetFullPath(Program.SoundDir + PortablePath.Normalize(datFilename));
+ 
+ 			try
+ 			{
+@@ -2887,11 +2889,9 @@ internal sealed partial class FunctionIdentifier
+ 						if (result == DialogResult.Yes)
+ 						{
+ 							exm.VEvaluator.RESULT = 2;
+-							System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+-							{
+-								UseShellExecute = true,
+-								FileName = link,
+-							});
++							//andEmuera: Android では Process.Start(UseShellExecute) が使えないため、
++							//プラットフォーム側の URL オープン処理に委譲する
++							MinorShift.Emuera.Runtime.Utils.PluginSystem.BuiltinPlugins.OpenUrl(link);
+ 							//System.Diagnostics.Process.Start(link);
+ 							st.Close();
+ 							wc.Dispose();
+diff --git a/Emuera/Runtime/Utils/EvilMask/Utils.cs b/Emuera/Runtime/Utils/EvilMask/Utils.cs
+index bcd7b3c..a7a0c6a 100644
+--- a/Emuera/Runtime/Utils/EvilMask/Utils.cs
++++ b/Emuera/Runtime/Utils/EvilMask/Utils.cs
+@@ -213,17 +213,11 @@ internal sealed class Utils
+ 	/// </summary>
+ 	public static string GetValidPath(string path)
+ 	{
+-		path = path.Replace('/', '\\').Replace("..\\", "");
+-		try
+-		{
+-			if (Path.GetPathRoot(path) != string.Empty)
+-				return null;
+-		}
+-		catch
+-		{
+-			return null;
+-		}
+-		return Path.Combine(Program.ExeDir + path);
++		//andEmuera: '/'→'\' の固定置換は Android(ext4) では区切りにならず、
++		//"resources/1001ペコリーヌ/顔_デフォルト.webp" が丸ごと 1 個のファイル名になってしまう。
++		//区切りの正規化と ".." によるゲームフォルダ脱出の防止は PortablePath にまとめた
++		//(上流の Replace("..\\","") は String.Replace が再走査しないため "....//" で抜けられた)。
++		return PortablePath.CombineUnderRoot(Program.ExeDir, path);
+ 	}
+ 	public static void MixedNum4ToInt4(MixedNum[] mnums, ref int[] nums)
+ 	{
+diff --git a/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs b/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs
+index 7cc6e5e..5332b98 100644
+--- a/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs
++++ b/Emuera/Runtime/Utils/PluginSystem/PluginManager.cs
+@@ -270,6 +270,14 @@ namespace MinorShift.Emuera.Runtime.Utils.PluginSystem
+ 		/// </summary>
+ 		public void LoadPlugins()
+ 		{
++			ClearMethods();
++
++			//andEmuera: Android では WinForms 依存の DLL を読み込めないため、
++			//よく使われるプラグインの内蔵実装を先に登録する。
++			//同名の DLL があれば後の読み込みで上書きされる。
++			foreach (var builtin in BuiltinPlugins.GetMethods())
++				AddMethod(builtin);
++
+ 			if (!Directory.Exists(Path.Combine(Program.ExeDir, "Plugins")))
+ 			{
+ 				//フォルダを作らないようにする
+@@ -278,7 +286,6 @@ namespace MinorShift.Emuera.Runtime.Utils.PluginSystem
+ 			}
+ 			string[] plugins = Directory.GetFiles(Path.Combine(Program.ExeDir, "Plugins"), "*.dll");
+ 			//bool pluginsAware = File.Exists(Program.ExeDir + "pluginsAware.txt");
+-			ClearMethods();
+ 
+ 			//プラグインがある
+ 			if (plugins.Length > 0)
+@@ -289,31 +296,53 @@ namespace MinorShift.Emuera.Runtime.Utils.PluginSystem
+ 
+ 			foreach (var pluginPath in plugins)
+ 			{
+-				Assembly DLL = Assembly.LoadFrom(pluginPath);
+-				var manifestType = DLL.GetTypes().Where((v) => v.Name == "PluginManifest").FirstOrDefault();
+-				if (manifestType == null)
+-				{
+-					//TODO: throw warning
+-					continue;
+-				}
+-				/*
+-				if (!pluginsAware)
++				//andEmuera: プラグイン DLL は本家の Emuera 本体アセンブリを参照しているため、
++				//この移植版では Assembly.LoadFrom / GetTypes() が必ず解決に失敗する。
++				//上流は例外をそのまま投げるので DLL が 1 本あるだけで起動ごと止まってしまう。
++				//読めない DLL は警告して飛ばし、起動は続行する
++				//(よく使われるプラグインは BuiltinPlugins の内蔵実装で代替している)。
++				try
+ 				{
+-					throw new ExeEE("This game comes prepackaged with plugins. This is a security check to make sure you're aware of that: Never run your EE under Administrator rights, Always get your games and Plugins from verified sources and If you're maintainer of the build and it should NOT come with plugins, Investigate immediately. If everything is okay, create file pluginsAware.txt at the root of the game distributive and restart");
++					Assembly DLL = Assembly.LoadFrom(pluginPath);
++					var manifestType = DLL.GetTypes().Where((v) => v.Name == "PluginManifest").FirstOrDefault();
++					if (manifestType == null)
++					{
++						//TODO: throw warning
++						continue;
++					}
++					/*
++					if (!pluginsAware)
++					{
++						throw new ExeEE("This game comes prepackaged with plugins. This is a security check to make sure you're aware of that: Never run your EE under Administrator rights, Always get your games and Plugins from verified sources and If you're maintainer of the build and it should NOT come with plugins, Investigate immediately. If everything is okay, create file pluginsAware.txt at the root of the game distributive and restart");
++					}
++					*/
++
++					PluginManifestAbstract manifest = (PluginManifestAbstract)Activator.CreateInstance(manifestType);
++					if (manifest == null)
++					{
++						//TODO: throw warning
++						continue;
++					}
++
++					var methods = manifest.GetPluginMethods();
++					foreach (var method in methods)
++					{
++						AddMethod(method);
++					}
+ 				}
+-				*/
+-
+-				PluginManifestAbstract manifest = (PluginManifestAbstract)Activator.CreateInstance(manifestType);
+-				if (manifest == null)
+-				{
+-					//TODO: throw warning
+-					continue;
+-				}
+-
+-				var methods = manifest.GetPluginMethods();
+-				foreach (var method in methods)
++				catch (Exception e)
+ 				{
+-					AddMethod(method);
++					//andEmuera: ReflectionTypeLoadException の Message は「型を読み込めない」としか言わないので
++					//実際に解決できなかったアセンブリ名が入っている LoaderExceptions 側を出す
++					string mes = e.Message;
++					if (e is ReflectionTypeLoadException rtle)
++					{
++						var loaderException = rtle.LoaderExceptions.FirstOrDefault(x => x != null);
++						if (loaderException != null)
++							mes = loaderException.Message;
++					}
++					//詳細は stack 引数に回す。1 行が長いと端末幅で切れて肝心の DLL 名が読めなくなる
++					ParserMediator.Warn($"プラグイン「{Path.GetFileName(pluginPath)}」を読み込めませんでした。このDLLが提供する命令は使用できません", null, 2, mes);
+ 				}
+ 			}
+ 		}
+@@ -428,7 +457,8 @@ namespace MinorShift.Emuera.Runtime.Utils.PluginSystem
+ 			{
+ 				key = key.ToUpper();
+ 			}
+-			methods.Add(key, method);
++			//andEmuera: 内蔵実装と同名の DLL があれば DLL 側を優先させる (重複で例外にしない)
++			methods[key] = method;
+ 		}
+ 
+ 		private Dictionary<string, IPluginMethod> methods = [];
+diff --git a/Emuera/Runtime/Utils/Sys.cs b/Emuera/Runtime/Utils/Sys.cs
+index a9dad6a..882dbfb 100644
+--- a/Emuera/Runtime/Utils/Sys.cs
++++ b/Emuera/Runtime/Utils/Sys.cs
+@@ -9,10 +9,11 @@ public static class AssemblyData
+ 	static AssemblyData()
+ 	{
+ 		ExePath = Environment.ProcessPath;
++		//andEmuera: Android の区切りは '/' なので '\' 固定にしない
+ 		#region eee_カレントディレクトリー
+-		WorkingDir = Directory.GetCurrentDirectory() + "\\";
++		WorkingDir = Directory.GetCurrentDirectory() + Path.DirectorySeparatorChar;
+ 		#endregion
+-		ExeDir = Path.GetDirectoryName(ExePath) + "\\";
++		ExeDir = Path.GetDirectoryName(ExePath) + Path.DirectorySeparatorChar;
+ 		ExeName = Path.GetFileName(ExePath);
+ 		emueraVer = typeof(AssemblyData).Assembly.GetName().Version;
+ 
+diff --git a/Emuera/UI/FontFactory.cs b/Emuera/UI/FontFactory.cs
+index 2dc2c32..cdbba3b 100644
+--- a/Emuera/UI/FontFactory.cs
++++ b/Emuera/UI/FontFactory.cs
+@@ -46,40 +46,38 @@ internal class FontFactory
+ 		string fn = requestFontName;
+ 		if (string.IsNullOrEmpty(requestFontName))
+ 			fn = Config.FontName;
+-		if (!fontDic.ContainsKey((fn, Config.FontSize, style)))
+-		{
+-			var font = new Font(fn, Config.FontSize, style, GraphicsUnit.Pixel);
+-			if (font != null)
+-				fontDic.Add((fn, Config.FontSize, style), font);
+ 
+-		}
+-		Dictionary<FontStyle, Font> fontStyleDic = [];
+-		if (!fontStyleDic.ContainsKey(style))
++		// andEmuera: fontStyleDic はメソッドローカルだったため毎回作り直され、
++		// 呼ばれるたびに new Font していた。文字列の実測幅は 1 パートごとに引かれるので、
++		// Android では計測 1 回ごとに SKFont/SKTypeface の生成が走って効いてくる。
++		// 既存の static な fontDic に一本化する。
++		var key = (fn, Config.FontSize, style);
++		if (fontDic.TryGetValue(key, out var cached))
++			return cached;
++
++		int fontsize = Config.FontSize;
++		Font styledFont;
++		try
+ 		{
+-			int fontsize = Config.FontSize;
+-			Font styledFont;
+-			try
++			#region EE_フォントファイル対応
++			foreach (FontFamily ff in GlobalStatic.Pfc.Families)
+ 			{
+-				#region EE_フォントファイル対応
+-				foreach (FontFamily ff in GlobalStatic.Pfc.Families)
++				if (ff.Name == fn)
+ 				{
+-					if (ff.Name == fn)
+-					{
+-						styledFont = new Font(ff, fontsize, style, GraphicsUnit.Pixel);
+-						goto foundfont;
+-					}
++					styledFont = new Font(ff, fontsize, style, GraphicsUnit.Pixel);
++					goto foundfont;
+ 				}
+-				styledFont = new Font(fn, fontsize, style, GraphicsUnit.Pixel);
+ 			}
+-			catch
+-			{
+-				return null;
+-			}
+-		foundfont:
+-			#endregion
+-			fontStyleDic.Add(style, styledFont);
++			styledFont = new Font(fn, fontsize, style, GraphicsUnit.Pixel);
+ 		}
+-		return fontStyleDic[style];
++		catch
++		{
++			return null;
++		}
++	foundfont:
++		#endregion
++		fontDic.Add(key, styledFont);
++		return styledFont;
+ 	}
+ 
+ 	public static void ClearFont()
+diff --git a/Emuera/UI/Game/EmueraConsole.cs b/Emuera/UI/Game/EmueraConsole.cs
+index dd8dd51..7b7dfec 100644
+--- a/Emuera/UI/Game/EmueraConsole.cs
++++ b/Emuera/UI/Game/EmueraConsole.cs
+@@ -2763,9 +2763,10 @@ internal sealed partial class EmueraConsole : IDisposable
+ 			timer_suspended = true;
+ 		}
+ 		List<string> paths = [];
+-		SearchOption op = SearchOption.AllDirectories;
+-		if (!Config.SearchSubdirectory)
+-			op = SearchOption.TopDirectoryOnly;
++		//andEmuera: Android では検索パターンの大文字小文字が区別されるため非依存で列挙する
++		var op = Config.SearchSubdirectory
++			? Config.CaseInsensitiveAllDirectories
++			: Config.CaseInsensitiveTopDirectory;
+ 		var fnames = Directory.EnumerateFiles(erbPath, "*.ERB", op);
+ 		foreach (var fname in fnames)
+ 		{
+diff --git a/Emuera/UI/Game/Image/AppContents.cs b/Emuera/UI/Game/Image/AppContents.cs
+index 661c6f0..5ebd9e2 100644
+--- a/Emuera/UI/Game/Image/AppContents.cs
++++ b/Emuera/UI/Game/Image/AppContents.cs
+@@ -104,7 +104,8 @@ static class AppContents
+ 		try
+ 		{
+ 			//resourcesフォルダ内の全てのcsvファイルを探索する
+-			var csvFiles = Directory.EnumerateFiles(Program.ContentDir, "*.csv", SearchOption.AllDirectories);
++			//andEmuera: Android では検索パターンの大文字小文字が区別されるため非依存で列挙する
++			var csvFiles = Directory.EnumerateFiles(Program.ContentDir, "*.csv", Runtime.Config.Config.CaseInsensitiveAllDirectories);
+ 			foreach (var filepath in csvFiles)
+ 			{
+ 				if (reload)
+@@ -125,7 +126,8 @@ static class AppContents
+ 				{
+ 					//アニメスプライト宣言。nullでないとき、フレーム追加モード
+ 					SpriteAnime currentAnime = null;
+-					string directory = Path.GetDirectoryName(path) + "\\";
++					//andEmuera: Android の区切りは '/' なので、'\' 固定だと画像パスが壊れる
++					string directory = Path.GetDirectoryName(path) + Path.DirectorySeparatorChar;
+ 					string filename = Path.GetFileName(path);
+ 					string[] lines = File.ReadAllLines(path, EncodingHandler.DetectEncoding(path));
+ 					int lineNo = 0;

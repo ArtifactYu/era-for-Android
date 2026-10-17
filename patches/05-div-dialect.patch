@@ -1,0 +1,312 @@
+From b002e52e4f6864eb9c8b78a094c5eb95348a3f2d Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 13:05:45 +0900
+Subject: [PATCH 06/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20HTML=5FPRINT?=
+ =?UTF-8?q?=E3=81=AEdiv=E6=96=B9=E8=A8=80=E3=82=92.netEmuera=E3=81=AB?=
+ =?UTF-8?q?=E5=90=88=E3=82=8F=E3=81=9B=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../Runtime/Utils/EvilMask/ConsoleDivPart.cs  | 105 ++++++++++++++++--
+ Emuera/UI/Game/ConsoleButtonString.cs         |   5 +-
+ Emuera/UI/Game/HtmlManager.cs                 |  53 ++++++---
+ 3 files changed, 137 insertions(+), 26 deletions(-)
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index 5cdc981..4b8f6cb 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -9,14 +9,29 @@ using static MinorShift.Emuera.Runtime.Utils.EvilMask.Utils;
+ 
+ namespace MinorShift.Emuera.Runtime.Utils.EvilMask;
+ 
++#region 統合_netEmuera
++/// <summary>
++/// divの配置方法。Relative / Absolute は EM+EE 従来のもの。
++/// AbsoluteLeftTop / AbsoluteLeftBottom は .netEmuera 由来で、原点の取り方が Absolute と違う。
++/// </summary>
++enum DivDisplayMode
++{
++	Relative,
++	Absolute,
++	AbsoluteLeftTop,
++	AbsoluteLeftBottom,
++}
++#endregion
++
+ class ConsoleDivPart : AConsoleDisplayNode
+ {
+-	public ConsoleDivPart(MixedNum xPos, MixedNum yPos, MixedNum width, MixedNum height, int depth, int color, StyledBoxModel box, bool isRelative, ConsoleDisplayLine[] childs)
++	public ConsoleDivPart(MixedNum xPos, MixedNum yPos, MixedNum width, MixedNum height, int depth, int color, StyledBoxModel box, DivDisplayMode display, ConsoleDisplayLine[] childs)
+ 	{
+ 		backgroundColor = color >= 0 ? Color.FromArgb((int)(color | 0xff000000)) : Color.Transparent;
+ 		StringBuilder sb = new();
+-		width.num = Math.Abs(width.num);
+-		height.num = Math.Abs(height.num);
++		//統合_netEmuera: width/height は省略可。省略時は中身から算出する
++		if (width != null) width.num = Math.Abs(width.num);
++		if (height != null) height.num = Math.Abs(height.num);
+ 		sb.Append("<div");
+ 		AddTagMixedNumArg(sb, "xpos", xPos);
+ 		AddTagMixedNumArg(sb, "ypos", yPos);
+@@ -58,14 +73,65 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 		if (border != null) yOffset += border[Direction.Top];
+ 		#endregion
+ 
+-		this.width = MixedNum.ToPixel(width, 0);
+-		Height = MixedNum.ToPixel(height, 0);
++		//統合_netEmuera: 省略時は中身に合わせる。
++		//レイアウト上の大きさは .netEmuera と同じ「行数×行高」「中身の幅」にする。
++		//画像のように行高を超える中身はこれだとクリップで消えてしまうので、
++		//描画時のクリップだけ実寸まで広げる（contentWidth / contentHeight）
++		autoSized = width == null || height == null;
++		this.width = width != null ? MixedNum.ToPixel(width, 0) : AutoWidth(childs);
++		Height = height != null ? MixedNum.ToPixel(height, 0) : childs.Length * Config.Config.LineHeight + EdgeSize(Direction.Top) + EdgeSize(Direction.Bottom);
++		if (autoSized)
++		{
++			contentWidth = Math.Max(this.width, AutoWidth(childs));
++			contentHeight = Math.Max(Height, ContentBottom(childs) + EdgeSize(Direction.Top) + EdgeSize(Direction.Bottom));
++		}
+ 		children = childs;
+ 		Depth = depth;
+-		IsRelative = isRelative;
+-		
++		Display = display;
++
+ 		ShiftChildrenX(PointX + xOffset + divXOffset);
+ 	}
++
++	#region 統合_netEmuera
++	private int AutoWidth(ConsoleDisplayLine[] childs)
++	{
++		int content = 0;
++		foreach (var line in childs)
++			foreach (var button in line.Buttons)
++				if (button != null)
++					content = Math.Max(content, button.PointX + button.Width);
++		return content + EdgeSize(Direction.Left) + EdgeSize(Direction.Right);
++	}
++
++	//画像は1行に収まらないので、各ノードの下端から中身の実高さを求める
++	private static int ContentBottom(ConsoleDisplayLine[] childs)
++	{
++		int lineHeight = Config.Config.LineHeight;
++		int bottom = 0;
++		for (int i = 0; i < childs.Length; i++)
++		{
++			int lineY = i * lineHeight;
++			foreach (var button in childs[i].Buttons)
++			{
++				if (button?.StrArray == null)
++					continue;
++				foreach (var part in button.StrArray)
++					if (part != null)
++						bottom = Math.Max(bottom, lineY + part.Bottom);
++			}
++		}
++		return bottom;
++	}
++
++	private int EdgeSize(int direction)
++	{
++		int size = 0;
++		if (margin != null) size += margin[direction];
++		if (border != null) size += border[direction];
++		if (padding != null) size += padding[direction];
++		return size;
++	}
++	#endregion
+ 	int pointX;
+ 	int xOffset;
+ 	#region EE_div各要素の修正
+@@ -73,6 +139,11 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 	int yOffset;
+ 	#endregion
+ 	int width;
++	#region 統合_netEmuera
++	readonly bool autoSized;
++	readonly int contentWidth;
++	readonly int contentHeight;
++	#endregion
+ 	public override int PointX
+ 	{
+ 		get { return pointX; }
+@@ -97,7 +168,8 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 	public bool IsEscaped { get; set; }
+ 	public override int Top { get { return PointY; } }
+ 	public override int Bottom { get { return PointY + Height; } }
+-	public bool IsRelative { get; private set; }
++	public DivDisplayMode Display { get; private set; }
++	public bool IsRelative => Display == DivDisplayMode.Relative;
+ 	public ConsoleDisplayLine[] Children { get { return children; } }
+ 
+ 	public override bool CanDivide => false;
+@@ -145,8 +217,16 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 	public override void DrawTo(Graphics graph, int pointY, bool isSelecting, bool isBackLog, bool isFocus, TextDrawingMode mode, bool isButton = false)
+ 	{
+ 		if (GlobalStatic.EMediator.Console.Window == null) return;
+-		var rect = IsRelative ? new Rectangle(PointX + xOffset, pointY + PointY, width + 2, Height)
+-			: new Rectangle(xOffset, GlobalStatic.EMediator.Console.Window.MainPicBox.Height - PointY - Height, width + 2, Height); // 何故か+2pxが必要，なぞ
++		//統合_netEmuera: AbsoluteLeftTop / AbsoluteLeftBottom は .netEmuera の原点の取り方に合わせる
++		//（LeftBottom は画面下端 + ypos。ypos に負値を渡して下から積む使い方をする）
++		int clientHeight = GlobalStatic.EMediator.Console.Window.MainPicBox.Height;
++		var rect = Display switch // 何故か+2pxが必要，なぞ
++		{
++			DivDisplayMode.Relative => new Rectangle(PointX + xOffset, pointY + PointY, width + 2, Height),
++			DivDisplayMode.AbsoluteLeftTop => new Rectangle(xOffset, PointY, width + 2, Height),
++			DivDisplayMode.AbsoluteLeftBottom => new Rectangle(xOffset, clientHeight + PointY, width + 2, Height),
++			_ => new Rectangle(xOffset, clientHeight - PointY - Height, width + 2, Height),
++		};
+ 
+ 		if (margin != null)
+ 			rect = new Rectangle(rect.X + margin[Direction.Left], rect.Y + margin[Direction.Top],
+@@ -166,6 +246,11 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 			rect = new Rectangle(rect.X + padding[Direction.Left], rect.Y + padding[Direction.Top],
+ 				 rect.Width - padding[Direction.Left] - padding[Direction.Right], rect.Height - padding[Direction.Top] - padding[Direction.Bottom]);
+ 
++		//統合_netEmuera: 自動サイズのときは中身をクリップで削らない。
++		//枠と背景は行数ベースの大きさ（=.netEmuera と同じ）で描き、中身だけ実寸まで許す
++		if (autoSized)
++			rect = new Rectangle(rect.X, rect.Y, Math.Max(rect.Width, contentWidth), Math.Max(rect.Height, contentHeight));
++
+ 		graph.SetClip(rect, CombineMode.Replace);
+ 
+ 		pointY = rect.Y;
+diff --git a/Emuera/UI/Game/ConsoleButtonString.cs b/Emuera/UI/Game/ConsoleButtonString.cs
+index dd6a196..42cf5f3 100644
+--- a/Emuera/UI/Game/ConsoleButtonString.cs
++++ b/Emuera/UI/Game/ConsoleButtonString.cs
+@@ -148,7 +148,10 @@ internal sealed class ConsoleButtonString
+ 	{
+ 		if (!escapeFilterApplied)
+ 		{
+-			var e = strArray.Where(p => p.Top < 0 || p.Bottom > Config.LineHeight).ToArray();
++			//統合_netEmuera: div は DrawTo で常に読み飛ばされるので、
++			//行内に収まる大きさでもここで拾わないと一切描画されない。
++			//従来は width/height が必須で行高を超えるものしか無かったため表面化していなかった
++			var e = strArray.Where(p => p.Top < 0 || p.Bottom > Config.LineHeight || p is ConsoleDivPart).ToArray();
+ 			foreach (var p in e) if (p is ConsoleDivPart div) div.IsEscaped = true;
+ 			if (e.Length > 0) escaped = e;
+ 			escapeFilterApplied = true;
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index 4171bbf..e7e4a53 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -189,7 +189,7 @@ internal static class HtmlManager
+ 	#region EM_私家版_HTML_divタグ
+ 	private sealed class HtmlDivTag
+ 	{
+-		public HtmlDivTag(MixedNum x, MixedNum y, MixedNum width, MixedNum height, int depth, int color, StyledBoxModel box, bool isRelative)
++		public HtmlDivTag(MixedNum x, MixedNum y, MixedNum width, MixedNum height, int depth, int color, StyledBoxModel box, DivDisplayMode display)
+ 		{
+ 			X = x;
+ 			Y = y;
+@@ -198,7 +198,7 @@ internal static class HtmlManager
+ 			Depth = depth;
+ 			Color = color;
+ 			StyledBox = box;
+-			IsRelative = isRelative;
++			Display = display;
+ 		}
+ 		public ConsoleDisplayLine[] Lines;
+ 		public MixedNum Width;
+@@ -208,7 +208,7 @@ internal static class HtmlManager
+ 		public int Color;
+ 		public int Depth;
+ 		public StyledBoxModel StyledBox;
+-		public bool IsRelative;
++		public DivDisplayMode Display;
+ 	}
+ 	#endregion
+ 	static HtmlManager()
+@@ -553,9 +553,12 @@ internal static class HtmlManager
+ 							if (state.CurrentButtonTag != null || state.FontStyle != FontStyle.Regular || state.FonttagList.Count > 0)
+ 								throw new CodeEE(trerror.TagIsNotClosed.Text);
+ 							var width = state.CurrentDivTag.Width;
+-							state.SubDivisionWidth = MixedNum.ToPixel(width);
++							//統合_netEmuera: width 省略時は 0 のままにしておく。
++							//ButtonsToDisplayLines は 0 以下なら画面幅で折り返すので、
++							//折り返し後の実寸から ConsoleDivPart 側が幅を決める
++							state.SubDivisionWidth = width != null ? MixedNum.ToPixel(width) : 0;
+ 							// state.SubDivisionXOffset = 0;
+-							if (state.CurrentDivTag.StyledBox != null)
++							if (width != null && state.CurrentDivTag.StyledBox != null)
+ 							{
+ 								var box = state.CurrentDivTag.StyledBox;
+ 								if (box.margin != null)
+@@ -584,7 +587,7 @@ internal static class HtmlManager
+ 							var tagInfo = state.CurrentDivTag;
+ 							state.CurrentDivTag = null;
+ 							state.StartingSubDivision = false;
+-							cssList.Add(new ConsoleDivPart(tagInfo.X, tagInfo.Y, tagInfo.Width, tagInfo.Height, tagInfo.Depth, tagInfo.Color, tagInfo.StyledBox, tagInfo.IsRelative, tagInfo.Lines));
++							cssList.Add(new ConsoleDivPart(tagInfo.X, tagInfo.Y, tagInfo.Width, tagInfo.Height, tagInfo.Depth, tagInfo.Color, tagInfo.StyledBox, tagInfo.Display, tagInfo.Lines));
+ 						}
+ 					}
+ 					else
+@@ -1096,7 +1099,7 @@ internal static class HtmlManager
+ 					MixedNum width = null;
+ 					MixedNum height = null;
+ 					StyledBoxModel box = null;
+-					bool isRelative = true;
++					DivDisplayMode displayMode = DivDisplayMode.Relative;
+ 					int depth = 0;
+ 					int color = -1;
+ 					string attrValue;
+@@ -1172,24 +1175,44 @@ internal static class HtmlManager
+ 								}
+ 							}
+ 						}
+-						else if (word.Code.Equals("bcolor", StringComparison.OrdinalIgnoreCase))
++						else if (word.Code.Equals("bcolor", StringComparison.OrdinalIgnoreCase)
++							#region 統合_netEmuera
++							//.netEmuera は枠線色を border_color と綴る
++							|| word.Code.Equals("border_color", StringComparison.OrdinalIgnoreCase)
++							#endregion
++							)
+ 						{
+ 							ParseParam4IntNum(ref CreateIfNull(ref box).color, tag, word.Code, attrValue);
+ 						}
++						#region 統合_netEmuera
++						//.netEmuera は背景色を background_color、枠線幅を border_width と綴る
++						else if (word.Code.Equals("background_color", StringComparison.OrdinalIgnoreCase))
++						{
++							if (color >= 0)
++								throw new CodeEE(string.Format(trerror.DuplicateAttribute.Text, tag, word.Code));
++							color = stringToColorInt32(attrValue);
++						}
++						else if (word.Code.Equals("border_width", StringComparison.OrdinalIgnoreCase))
++						{
++							if (!TryParseStyledBoxModel(ref box, tag, "border", attrValue))
++								throw new CodeEE(string.Format(trerror.CanNotInterpretAttributeName.Text, tag, word.Code));
++						}
++						#endregion
+ 						else if (word.Code.Equals("display", StringComparison.OrdinalIgnoreCase))
+ 						{
+-							if (attrValue.Equals("absolute", StringComparison.OrdinalIgnoreCase)) isRelative = false;
+-							else if (attrValue.Equals("relative", StringComparison.OrdinalIgnoreCase)) isRelative = true;
++							if (attrValue.Equals("absolute", StringComparison.OrdinalIgnoreCase)) displayMode = DivDisplayMode.Absolute;
++							else if (attrValue.Equals("relative", StringComparison.OrdinalIgnoreCase)) displayMode = DivDisplayMode.Relative;
++							#region 統合_netEmuera
++							else if (attrValue.Equals("absolute-lefttop", StringComparison.OrdinalIgnoreCase)) displayMode = DivDisplayMode.AbsoluteLeftTop;
++							else if (attrValue.Equals("absolute-leftbottom", StringComparison.OrdinalIgnoreCase)) displayMode = DivDisplayMode.AbsoluteLeftBottom;
++							#endregion
+ 							else throw new CodeEE(string.Format(trerror.CanNotInterpretAttribute.Text, attrValue));
+ 						}
+ 						else if (!TryParseStyledBoxModel(ref box, tag, word.Code, attrValue))
+ 							throw new CodeEE(string.Format(trerror.CanNotInterpretAttributeName.Text, tag, word.Code));
+ 					}
+-					if (width == null)
+-						throw new CodeEE(string.Format(trerror.NotSetAttribute.Text, tag, "width"));
+-					if (height == null)
+-						throw new CodeEE(string.Format(trerror.NotSetAttribute.Text, tag, "height"));
+-					state.CurrentDivTag = new HtmlDivTag(x, y, width, height, depth, color, box, isRelative);
++					//統合_netEmuera: width/height 省略時は中身に合わせる（null のまま渡す）
++					state.CurrentDivTag = new HtmlDivTag(x, y, width, height, depth, color, box, displayMode);
+ 					state.StartingSubDivision = true;
+ 					return null;
+ 				}
+-- 
+2.51.0.windows.1
+

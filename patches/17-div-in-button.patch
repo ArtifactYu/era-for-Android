@@ -1,0 +1,45 @@
+From db7b8fc83f23a6c01bf649eec106529bdd02f8de Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 12:19:51 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20button/font=20=E3=81=AE?=
+ =?UTF-8?q?=E4=B8=AD=E3=81=A7=20div=20=E3=82=92=E9=96=8B=E3=81=91=E3=82=8B?=
+ =?UTF-8?q?=E3=82=88=E3=81=86=E3=81=AB=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+.netEmuera は HTML パーサ(AngleSharp)なので、button や font が開いた
+ままでも div は単に内側に入れ子になるだけで通る。ShinEraTenseiP の
+SET_BUTTON_TAG が <button value='..' title='..'><div ..>…</div></button>
+を作るため、隊列表示がここで「閉じられていないタグがあります」で停止する。
+
+div を組み立てる直前の判定を外すだけにした。ConsoleDivPart は
+button が開いたままの親の cssList に積まれるので、</button> まで来れば
+そのままボタンの中身になる。中身へ font/button を引き継ぐ案も試したが、
+実画面の描画結果はピクセル単位で同一だったため入れていない。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/HtmlManager.cs | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index 6447edf..429d4e6 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -561,8 +561,10 @@ internal static class HtmlManager
+ 					if (state.PendingDivTag != null)
+ 					{
+ 						{
+-							if (state.CurrentButtonTag != null || state.FontStyle != FontStyle.Regular || state.FonttagList.Count > 0)
+-								throw new CodeEE(trerror.TagIsNotClosed.Text);
++							//統合_netEmuera_button内div: button / font の中で div を開いてよい。
++							//.netEmuera は HTML パーサ(AngleSharp)なので div は単に内側に入れ子になる。
++							//ゲーム側の <button><div>…</div></button> という書き方が実際に使われている
++							//（ShinEraTenseiP の SET_BUTTON_TAG がこの形を作る）
+ 							var width = state.PendingDivTag.Width;
+ 							//統合_netEmuera: width 省略時は 0 のままにしておく。
+ 							//ButtonsToDisplayLines は 0 以下なら画面幅で折り返すので、
+-- 
+2.51.0.windows.1
+

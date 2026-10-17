@@ -1,0 +1,763 @@
+From 7d69f165c69448469f4811de4116ff88c6a8e8d9 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 13:50:04 +0900
+Subject: [PATCH 08/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20DICT=5F*/G=5FPOLYGO?=
+ =?UTF-8?q?N=5F*/SQL=5F*=20=E3=82=92.netEmuera=E3=81=8B=E3=82=89=E7=A7=BB?=
+ =?UTF-8?q?=E6=A4=8D?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/Emuera.csproj                          |   2 +
+ Emuera/Runtime/Script/Process.cs              |   5 +
+ .../Statements/Function/Creator.Method.Sql.cs | 152 +++++++++++
+ .../Function/Creator.Method.Unify2.cs         | 246 ++++++++++++++++++
+ .../Script/Statements/Function/Creator.cs     |  22 ++
+ .../Statements/Variable/VariableEvaluator.cs  |   7 +
+ Emuera/Runtime/Utils/ErbSql.cs                | 125 +++++++++
+ Emuera/Runtime/Utils/EvilMask/Lang.cs         |  14 +
+ Emuera/UI/Game/Image/GraphicsImage.cs         |  60 +++++
+ 9 files changed, 633 insertions(+)
+ create mode 100644 Emuera/Runtime/Script/Statements/Function/Creator.Method.Sql.cs
+ create mode 100644 Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify2.cs
+ create mode 100644 Emuera/Runtime/Utils/ErbSql.cs
+
+diff --git a/Emuera/Emuera.csproj b/Emuera/Emuera.csproj
+index 74ff33f..f02388d 100644
+--- a/Emuera/Emuera.csproj
++++ b/Emuera/Emuera.csproj
+@@ -139,6 +139,8 @@
+       <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+       <!-- 統合_netEmuera: HASH_XXH3 / HASH_XXH32 用 -->
+       <PackageReference Include="System.IO.Hashing" Version="9.0.1" />
++      <!-- 統合_netEmuera: SQL_* 用 -->
++      <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.1" />
+     </ItemGroup>
+ 
+ 
+diff --git a/Emuera/Runtime/Script/Process.cs b/Emuera/Runtime/Script/Process.cs
+index b865761..21bfa45 100644
+--- a/Emuera/Runtime/Script/Process.cs
++++ b/Emuera/Runtime/Script/Process.cs
+@@ -221,6 +221,11 @@ internal sealed partial class Process(EmueraConsole view)
+ 				noError = await loader.LoadErbDir(Program.ErbDir, Config.DisplayReport, labelDic);
+ 			logWriter?.WriteLine($"Proc:Init:ERB:End {stopWatch.ElapsedMilliseconds}ms");
+ 
++			#region 統合_netEmuera_SQL
++			//セーブせずに終了した前回の変更を持ち越さないように作業用DBを作り直す
++			ErbSql.SetUpTempDB();
++			#endregion
++
+ 			initSystemProcess();
+ 			initialiing = false;
+ 
+diff --git a/Emuera/Runtime/Script/Statements/Function/Creator.Method.Sql.cs b/Emuera/Runtime/Script/Statements/Function/Creator.Method.Sql.cs
+new file mode 100644
+index 0000000..00de076
+--- /dev/null
++++ b/Emuera/Runtime/Script/Statements/Function/Creator.Method.Sql.cs
+@@ -0,0 +1,152 @@
++//統合_netEmuera: SQL_* の式中関数。実体は Runtime/Utils/ErbSql.cs。
++using MinorShift.Emuera.Runtime.Script.Statements;
++using MinorShift.Emuera.Runtime.Script.Statements.Expression;
++using MinorShift.Emuera.Runtime.Script.Statements.Function;
++using MinorShift.Emuera.Runtime.Utils;
++using System;
++using System.Collections.Generic;
++using System.Globalization;
++
++namespace MinorShift.Emuera.GameData.Function;
++
++internal static partial class FunctionMethodCreator
++{
++	#region 統合_netEmuera_SQL
++
++	public sealed class SqlConnectionOpenMethod : FunctionMethod
++	{
++		public SqlConnectionOpenMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			ErbSql.ConnectionOpen(arguments[0].GetStrValue(exm));
++			return 1;
++		}
++	}
++
++	public sealed class SqlExecuteReaderMethod : FunctionMethod
++	{
++		public SqlExecuteReaderMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long), typeof(string)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			ErbSql.ExecuteReader(Name, arguments[0].GetIntValue(exm), arguments[1].GetStrValue(exm));
++			return 1;
++		}
++	}
++
++	public sealed class SqlExecuteScalerLongMethod : FunctionMethod
++	{
++		public SqlExecuteScalerLongMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			object value = ErbSql.ExecuteScalar(Name, arguments[0].GetStrValue(exm));
++			//結果なし・NULL は 0 にする
++			return value == null || value is DBNull ? 0 : Convert.ToInt64(value, CultureInfo.InvariantCulture);
++		}
++	}
++
++	public sealed class SqlExecuteScalerStringMethod : FunctionMethod
++	{
++		public SqlExecuteScalerStringMethod()
++		{
++			ReturnType = typeof(string);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++		public override string GetStrValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			object value = ErbSql.ExecuteScalar(Name, arguments[0].GetStrValue(exm));
++			return value == null || value is DBNull ? "" : Convert.ToString(value, CultureInfo.InvariantCulture);
++		}
++	}
++
++	public sealed class SqlExecuteNonQueryMethod : FunctionMethod
++	{
++		public SqlExecuteNonQueryMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			ErbSql.ExecuteNonQuery(Name, arguments[0].GetStrValue(exm));
++			return 0;
++		}
++	}
++
++	/// <summary>
++	/// 次の行へ進む。.netEmuera に合わせて、行があったとき 0・尽きたとき 1 を返す
++	/// （戻り値の意味が他の SQL_* と逆なので注意）
++	/// </summary>
++	public sealed class SqlReaderReadMethod : FunctionMethod
++	{
++		public SqlReaderReadMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			return ErbSql.ReaderRead(Name, arguments[0].GetIntValue(exm)) ? 0 : 1;
++		}
++	}
++
++	public sealed class SqlReaderGetLongMethod : FunctionMethod
++	{
++		public SqlReaderGetLongMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long), typeof(long)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			return ErbSql.ReaderGetLong(Name, arguments[0].GetIntValue(exm), (int)arguments[1].GetIntValue(exm));
++		}
++	}
++
++	public sealed class SqlReaderGetStringMethod : FunctionMethod
++	{
++		public SqlReaderGetStringMethod()
++		{
++			ReturnType = typeof(string);
++			argumentTypeArray = [typeof(long), typeof(long)];
++			CanRestructure = false;
++		}
++		public override string GetStrValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			return ErbSql.ReaderGetString(Name, arguments[0].GetIntValue(exm), (int)arguments[1].GetIntValue(exm));
++		}
++	}
++
++	public sealed class SqlReaderIsNullMethod : FunctionMethod
++	{
++		public SqlReaderIsNullMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long), typeof(long)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			return ErbSql.ReaderIsNull(Name, arguments[0].GetIntValue(exm), (int)arguments[1].GetIntValue(exm)) ? 1 : 0;
++		}
++	}
++	#endregion
++}
+diff --git a/Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify2.cs b/Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify2.cs
+new file mode 100644
+index 0000000..17809cf
+--- /dev/null
++++ b/Emuera/Runtime/Script/Statements/Function/Creator.Method.Unify2.cs
+@@ -0,0 +1,246 @@
++//統合_netEmuera: .netEmuera の DICT_* と G_POLYGON_* を移植したもの。
++using MinorShift.Emuera.Runtime.Config;
++using MinorShift.Emuera.Runtime.Script.Statements;
++using MinorShift.Emuera.Runtime.Script.Statements.Expression;
++using MinorShift.Emuera.Runtime.Script.Statements.Function;
++using MinorShift.Emuera.Runtime.Utils;
++using MinorShift.Emuera.UI.Game;
++using MinorShift.Emuera.UI.Game.Image;
++using System;
++using System.Collections.Generic;
++using System.Drawing;
++using trerror = MinorShift.Emuera.Runtime.Utils.EvilMask.Lang.Error;
++
++namespace MinorShift.Emuera.GameData.Function;
++
++internal static partial class FunctionMethodCreator
++{
++	#region 統合_netEmuera_DICT
++
++	/// <summary>
++	/// DICT_* が使う名前付き辞書。キーは数値で、文字列キーはハッシュに潰される（.netEmuera と同じ）。
++	/// セーブ対象ではないので実行中のみ有効。
++	/// </summary>
++	private static class ErbDictionary
++	{
++		static readonly Dictionary<string, Dictionary<long, object>> dictionaries = [];
++
++		public static void Create(string name) => dictionaries[name] = [];
++		public static bool Exists(string name) => dictionaries.ContainsKey(name);
++
++		public static Dictionary<long, object> Require(string methodName, string name)
++		{
++			if (!dictionaries.TryGetValue(name, out var dic))
++				throw new CodeEE(string.Format(trerror.DictNotFound.Text, methodName, name));
++			return dic;
++		}
++	}
++
++	/// <summary>キー引数を数値に揃える。文字列キーはハッシュ値を使う</summary>
++	private static long ReadDictKey(string methodName, ExpressionMediator exm, List<AExpression> arguments, int index)
++	{
++		AExpression arg = arguments[index];
++		if (arg.IsString)
++			return arg.GetStrValue(exm).GetHashCode();
++		if (arg.IsInteger)
++			return arg.GetIntValue(exm);
++		throw new CodeEE(string.Format(trerror.DictKeyType.Text, methodName));
++	}
++
++	public sealed class DictCreateMethod : FunctionMethod
++	{
++		public DictCreateMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			ErbDictionary.Create(arguments[0].GetStrValue(exm));
++			return 1;
++		}
++	}
++
++	public sealed class DictExistMethod : FunctionMethod
++	{
++		public DictExistMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(string)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			return ErbDictionary.Exists(arguments[0].GetStrValue(exm)) ? 1 : 0;
++		}
++	}
++
++	public sealed class DictContainsKeyMethod : FunctionMethod
++	{
++		public DictContainsKeyMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArrayEx = [
++				new ArgTypeList{ ArgTypes = { ArgType.String, ArgType.Any } },
++			];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			string name = arguments[0].GetStrValue(exm);
++			long key = ReadDictKey(Name, exm, arguments, 1);
++			return ErbDictionary.Require(Name, name).ContainsKey(key) ? 1 : 0;
++		}
++	}
++
++	public sealed class DictSetValueMethod : FunctionMethod
++	{
++		public DictSetValueMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArrayEx = [
++				new ArgTypeList{ ArgTypes = { ArgType.String, ArgType.Any, ArgType.Any } },
++			];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			string name = arguments[0].GetStrValue(exm);
++			long key = ReadDictKey(Name, exm, arguments, 1);
++			AExpression value = arguments[2];
++			if (value.IsString)
++				ErbDictionary.Require(Name, name)[key] = value.GetStrValue(exm);
++			else if (value.IsInteger)
++				ErbDictionary.Require(Name, name)[key] = value.GetIntValue(exm);
++			else
++				throw new CodeEE(string.Format(trerror.DictValueType.Text, Name));
++			return 1;
++		}
++	}
++
++	public sealed class DictGetValueIntMethod : FunctionMethod
++	{
++		public DictGetValueIntMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArrayEx = [
++				new ArgTypeList{ ArgTypes = { ArgType.String, ArgType.Any } },
++			];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			string name = arguments[0].GetStrValue(exm);
++			long key = ReadDictKey(Name, exm, arguments, 1);
++			if (!ErbDictionary.Require(Name, name).TryGetValue(key, out object value))
++				return 0;
++			return value is long l ? l : throw new CodeEE(string.Format(trerror.DictValueIsNotInt.Text, Name));
++		}
++	}
++
++	public sealed class DictGetValueStringMethod : FunctionMethod
++	{
++		public DictGetValueStringMethod()
++		{
++			ReturnType = typeof(string);
++			argumentTypeArrayEx = [
++				new ArgTypeList{ ArgTypes = { ArgType.String, ArgType.Any } },
++			];
++			CanRestructure = false;
++		}
++		public override string GetStrValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			string name = arguments[0].GetStrValue(exm);
++			long key = ReadDictKey(Name, exm, arguments, 1);
++			if (!ErbDictionary.Require(Name, name).TryGetValue(key, out object value))
++				return "";
++			return value is string s ? s : throw new CodeEE(string.Format(trerror.DictValueIsNotStr.Text, Name));
++		}
++	}
++	#endregion
++
++	#region 統合_netEmuera_G_POLYGON
++
++	public sealed class GraphicsPolygonPointAddMethod : FunctionMethod
++	{
++		public GraphicsPolygonPointAddMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long), typeof(long), typeof(long)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			if (Config.TextDrawingMode == TextDrawingMode.WINAPI)
++				throw new CodeEE(string.Format(trerror.GDIPlusOnly.Text, Name));
++			GraphicsImage g = ReadGraphics(Name, exm, arguments, 0);
++			if (!g.IsCreated)
++				return 0;
++			Point p = ReadPoint(Name, exm, arguments, 1);
++			g.GDrawPolygonAddPoint(p.X, p.Y);
++			return 1;
++		}
++	}
++
++	public sealed class GraphicsPolygonPointClearMethod : FunctionMethod
++	{
++		public GraphicsPolygonPointClearMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			if (Config.TextDrawingMode == TextDrawingMode.WINAPI)
++				throw new CodeEE(string.Format(trerror.GDIPlusOnly.Text, Name));
++			GraphicsImage g = ReadGraphics(Name, exm, arguments, 0);
++			if (!g.IsCreated)
++				return 0;
++			g.GDrawPolygonClearPoint();
++			return 1;
++		}
++	}
++
++	public sealed class GraphicsDrawPolygonMethod : FunctionMethod
++	{
++		public GraphicsDrawPolygonMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			if (Config.TextDrawingMode == TextDrawingMode.WINAPI)
++				throw new CodeEE(string.Format(trerror.GDIPlusOnly.Text, Name));
++			GraphicsImage g = ReadGraphics(Name, exm, arguments, 0);
++			if (!g.IsCreated)
++				return 0;
++			g.GDrawPolygon();
++			return 1;
++		}
++	}
++
++	public sealed class GraphicsFillPolygonMethod : FunctionMethod
++	{
++		public GraphicsFillPolygonMethod()
++		{
++			ReturnType = typeof(long);
++			argumentTypeArray = [typeof(long)];
++			CanRestructure = false;
++		}
++		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
++		{
++			if (Config.TextDrawingMode == TextDrawingMode.WINAPI)
++				throw new CodeEE(string.Format(trerror.GDIPlusOnly.Text, Name));
++			GraphicsImage g = ReadGraphics(Name, exm, arguments, 0);
++			if (!g.IsCreated)
++				return 0;
++			g.GFillPolygon();
++			return 1;
++		}
++	}
++	#endregion
++}
+diff --git a/Emuera/Runtime/Script/Statements/Function/Creator.cs b/Emuera/Runtime/Script/Statements/Function/Creator.cs
+index 7188e70..166fc8c 100644
+--- a/Emuera/Runtime/Script/Statements/Function/Creator.cs
++++ b/Emuera/Runtime/Script/Statements/Function/Creator.cs
+@@ -40,6 +40,28 @@ internal static partial class FunctionMethodCreator
+ 			["GETCSVNOBYMASTERNAME"] = new GetCsvNoMethod(CharacterStrData.MASTERNAME),
+ 			["HASH_XXH3"] = new XXH3Method(),
+ 			["HASH_XXH32"] = new XXH32Method(),
++			//名前付き辞書。EM+EE の MAP_* とは別物で、キーを数値に潰す仕様
++			["DICT_CREATE"] = new DictCreateMethod(),
++			["DICT_EXIST"] = new DictExistMethod(),
++			["DICT_CONTAINS_KEY"] = new DictContainsKeyMethod(),
++			["DICT_SET_VALUE"] = new DictSetValueMethod(),
++			["DICT_GET_VALUE_LONG"] = new DictGetValueIntMethod(),
++			["DICT_GET_VALUE_STRING"] = new DictGetValueStringMethod(),
++			//多角形描画
++			["G_POLYGON_POINT_ADD"] = new GraphicsPolygonPointAddMethod(),
++			["G_POLYGON_POINT_CLEAR"] = new GraphicsPolygonPointClearMethod(),
++			["G_POLYGON_DRAW"] = new GraphicsDrawPolygonMethod(),
++			["G_POLYGON_FILL"] = new GraphicsFillPolygonMethod(),
++			//SQLite。DBの実体は sav/temp_db/ に置かれ、セーブデータと一緒に保存される
++			["SQL_CONNECTION_OPEN"] = new SqlConnectionOpenMethod(),
++			["SQL_EXECUTE_READER"] = new SqlExecuteReaderMethod(),
++			["SQL_EXECUTE_SCALER_LONG"] = new SqlExecuteScalerLongMethod(),
++			["SQL_EXECUTE_SCALER_STRING"] = new SqlExecuteScalerStringMethod(),
++			["SQL_EXECUTE_NONQUERY"] = new SqlExecuteNonQueryMethod(),
++			["SQL_READER_READ"] = new SqlReaderReadMethod(),
++			["SQL_READER_GET_LONG"] = new SqlReaderGetLongMethod(),
++			["SQL_READER_GET_STRING"] = new SqlReaderGetStringMethod(),
++			["SQL_READER_IS_NULL"] = new SqlReaderIsNullMethod(),
+ 			#endregion
+ 
+ 			//汎用処理系
+diff --git a/Emuera/Runtime/Script/Statements/Variable/VariableEvaluator.cs b/Emuera/Runtime/Script/Statements/Variable/VariableEvaluator.cs
+index 5546282..c4d0fb0 100644
+--- a/Emuera/Runtime/Script/Statements/Variable/VariableEvaluator.cs
++++ b/Emuera/Runtime/Script/Statements/Variable/VariableEvaluator.cs
+@@ -2397,6 +2397,10 @@ internal sealed class VariableEvaluator : IDisposable
+ 	public bool SaveTo(int saveIndex, string saveText)
+ 	{
+ 		string filepath = getSaveDataPath(saveIndex);
++		#region 統合_netEmuera_SQL
++		//SQL_* のDBはセーブデータの隣に save00 のような名前のフォルダを作って置く
++		ErbSql.Save(Path.Combine(Path.GetDirectoryName(filepath), Path.GetFileNameWithoutExtension(filepath)));
++		#endregion
+ 		FileStream fs = null;
+ 		EraDataWriter writer = null;
+ 		EraBinaryDataWriter bWriter = null;
+@@ -2434,6 +2438,9 @@ internal sealed class VariableEvaluator : IDisposable
+ 	public bool LoadFrom(int dataIndex)
+ 	{
+ 		string filepath = getSaveDataPath(dataIndex);
++		#region 統合_netEmuera_SQL
++		ErbSql.Load(Path.Combine(Path.GetDirectoryName(filepath), Path.GetFileNameWithoutExtension(filepath)));
++		#endregion
+ 		if (!File.Exists(filepath))
+ 			throw new ExeEE(trerror.NotExistPath.Text);
+ 
+diff --git a/Emuera/Runtime/Utils/ErbSql.cs b/Emuera/Runtime/Utils/ErbSql.cs
+new file mode 100644
+index 0000000..189a922
+--- /dev/null
++++ b/Emuera/Runtime/Utils/ErbSql.cs
+@@ -0,0 +1,125 @@
++//統合_netEmuera: SQL_* 用の SQLite バックエンド。
++//DB の実体は sav/temp_db/ に置き、セーブ時にセーブデータの隣へコピー、ロード時に書き戻す。
++//起動時に temp_db を作り直すので、セーブせずに終了した変更は残らない。
++using Microsoft.Data.Sqlite;
++using System.Collections.Generic;
++using System.IO;
++using trerror = MinorShift.Emuera.Runtime.Utils.EvilMask.Lang.Error;
++
++namespace MinorShift.Emuera.Runtime.Utils;
++
++internal static class ErbSql
++{
++	static SqliteConnection connection;
++	//SqliteCommand を破棄すると配下のリーダーも閉じられるので、コマンドはリーダーと同じ寿命で持つ
++	static readonly Dictionary<long, (SqliteCommand Command, SqliteDataReader Reader)> readers = [];
++
++	static string TempDir => Config.Config.SavDir + "temp_db" + Path.DirectorySeparatorChar;
++
++	public static void ConnectionOpen(string name)
++	{
++		Directory.CreateDirectory(TempDir);
++
++		foreach (long id in new List<long>(readers.Keys))
++			CloseReader(id);
++		connection?.Close();
++		SqliteConnectionStringBuilder builder = new() { DataSource = TempDir + name + ".db" };
++		connection = new SqliteConnection(builder.ConnectionString);
++		connection.Open();
++
++		//ゲームのセーブ単位でしか永続化しないので、journal と fsync は落とす
++		using SqliteCommand command = connection.CreateCommand();
++		command.CommandText = "PRAGMA journal_mode = OFF;PRAGMA synchronous = OFF;";
++		command.ExecuteNonQuery();
++	}
++
++	/// <summary>起動時に前回の作業用DBを捨てる</summary>
++	public static void SetUpTempDB()
++	{
++		if (!Directory.Exists(TempDir))
++			return;
++		foreach (long id in new List<long>(readers.Keys))
++			CloseReader(id);
++		connection?.Close();
++		connection = null;
++		SqliteConnection.ClearAllPools();
++		Directory.Delete(TempDir, true);
++		Directory.CreateDirectory(TempDir);
++	}
++
++	public static void Save(string destDirPath)
++	{
++		if (!Directory.Exists(TempDir))
++			return;
++		Directory.CreateDirectory(destDirPath);
++		foreach (FileInfo dbFile in new DirectoryInfo(TempDir).EnumerateFiles())
++			dbFile.CopyTo(Path.Combine(destDirPath, dbFile.Name), true);
++	}
++
++	public static void Load(string srcDirPath)
++	{
++		SetUpTempDB();
++		if (!Directory.Exists(srcDirPath))
++			return;
++		Directory.CreateDirectory(TempDir);
++		foreach (FileInfo dbFile in new DirectoryInfo(srcDirPath).EnumerateFiles())
++			dbFile.CopyTo(Path.Combine(TempDir, dbFile.Name), true);
++	}
++
++	static SqliteConnection RequireConnection(string methodName)
++	{
++		return connection ?? throw new CodeEE(string.Format(trerror.SqlNoConnection.Text, methodName));
++	}
++
++	static SqliteDataReader RequireReader(string methodName, long readerID)
++	{
++		if (!readers.TryGetValue(readerID, out var entry))
++			throw new CodeEE(string.Format(trerror.SqlNoReader.Text, methodName, readerID));
++		return entry.Reader;
++	}
++
++	static void CloseReader(long readerID)
++	{
++		if (!readers.TryGetValue(readerID, out var old))
++			return;
++		old.Reader.Dispose();
++		old.Command.Dispose();
++		readers.Remove(readerID);
++	}
++
++	public static void ExecuteReader(string methodName, long readerID, string sql)
++	{
++		SqliteCommand command = RequireConnection(methodName).CreateCommand();
++		command.CommandText = sql;
++		//前のリーダーは開きっぱなしにしない
++		CloseReader(readerID);
++		readers[readerID] = (command, command.ExecuteReader());
++	}
++
++	public static object ExecuteScalar(string methodName, string sql)
++	{
++		using SqliteCommand command = RequireConnection(methodName).CreateCommand();
++		command.CommandText = sql;
++		return command.ExecuteScalar();
++	}
++
++	public static void ExecuteNonQuery(string methodName, string sql)
++	{
++		using SqliteCommand command = RequireConnection(methodName).CreateCommand();
++		command.CommandText = sql;
++		command.ExecuteNonQuery();
++	}
++
++	public static bool ReaderRead(string methodName, long readerID) => RequireReader(methodName, readerID).Read();
++
++	public static long ReaderGetLong(string methodName, long readerID, int index) => RequireReader(methodName, readerID).GetInt64(index);
++
++	public static string ReaderGetString(string methodName, long readerID, int index) => RequireReader(methodName, readerID).GetString(index);
++
++	public static bool ReaderIsNull(string methodName, long readerID, int index)
++	{
++		SqliteDataReader reader = RequireReader(methodName, readerID);
++		//列が無い場合も NULL 扱いにする（.netEmuera と同じ）
++		return reader.FieldCount <= index || reader.IsDBNull(index);
++	}
++}
+diff --git a/Emuera/Runtime/Utils/EvilMask/Lang.cs b/Emuera/Runtime/Utils/EvilMask/Lang.cs
+index 815994e..42637c7 100644
+--- a/Emuera/Runtime/Utils/EvilMask/Lang.cs
++++ b/Emuera/Runtime/Utils/EvilMask/Lang.cs
+@@ -1035,6 +1035,20 @@ internal sealed partial class Lang
+ 		[Managed] public static TranslatableString DuplicateTag { get; } = new TranslatableString("<{0}>が二重に使われています");
+ 		[Managed] public static TranslatableString TagIsNotBegin { get; } = new TranslatableString("<{0}>が行頭以外で使われています");
+ 		[Managed] public static TranslatableString TagHasNotAttribute { get; } = new TranslatableString("<{0}>タグに属性が設定されていません");
++		#region 統合_netEmuera_G_POLYGON
++		[Managed] public static TranslatableString PolygonNeedsPoints { get; } = new TranslatableString("多角形の描画には G_POLYGON_POINT_ADD で頂点が3つ以上必要です");
++		#endregion
++		#region 統合_netEmuera_DICT
++		[Managed] public static TranslatableString DictNotFound { get; } = new TranslatableString("{0}関数:辞書\"{1}\"は作成されていません");
++		[Managed] public static TranslatableString DictKeyType { get; } = new TranslatableString("{0}関数のキーは数値か文字列である必要があります");
++		[Managed] public static TranslatableString DictValueType { get; } = new TranslatableString("{0}関数の値は数値か文字列である必要があります");
++		[Managed] public static TranslatableString DictValueIsNotInt { get; } = new TranslatableString("{0}関数:格納されている値が数値ではありません");
++		[Managed] public static TranslatableString DictValueIsNotStr { get; } = new TranslatableString("{0}関数:格納されている値が文字列ではありません");
++		#endregion
++		#region 統合_netEmuera_SQL
++		[Managed] public static TranslatableString SqlNoConnection { get; } = new TranslatableString("{0}関数:SQL_CONNECTION_OPENが呼ばれていません");
++		[Managed] public static TranslatableString SqlNoReader { get; } = new TranslatableString("{0}関数:IDが{1}のREADERは存在しません");
++		#endregion
+ 		[Managed] public static TranslatableString CanNotInterpretPAttribute { get; } = new TranslatableString("<p>タグの属性名{0}は解釈できません");
+ 		[Managed] public static TranslatableString CanNotInterpretAttribute { get; } = new TranslatableString("属性値{0}は解釈できません");
+ 		[Managed] public static TranslatableString DuplicateAttribute { get; } = new TranslatableString("<{0}>タグに{1}属性が2度以上指定されています");
+diff --git a/Emuera/UI/Game/Image/GraphicsImage.cs b/Emuera/UI/Game/Image/GraphicsImage.cs
+index 5765db3..7105c4c 100644
+--- a/Emuera/UI/Game/Image/GraphicsImage.cs
++++ b/Emuera/UI/Game/Image/GraphicsImage.cs
+@@ -1,10 +1,12 @@
+ ﻿using MinorShift.Emuera.Runtime.Config;
++using MinorShift.Emuera.Runtime.Utils;
+ using System;
+ using System.Collections.Generic;
+ using System.Drawing;
+ using System.Drawing.Drawing2D;
+ using System.Drawing.Imaging;
+ using System.Runtime.InteropServices;
++using trerror = MinorShift.Emuera.Runtime.Utils.EvilMask.Lang.Error;
+ 
+ namespace MinorShift.Emuera.UI.Game.Image;
+ 
+@@ -445,6 +447,64 @@ internal sealed class GraphicsImage : AbstractImage
+ 		g.DrawImage(src, 0, 0);
+ 	}
+ 	#endregion
++	#region 統合_netEmuera_G_POLYGON
++	//G_POLYGON_POINT_ADD で貯めた頂点を G_POLYGON_DRAW / _FILL で使う。
++	//頂点は描画しても消えない。消すには G_POLYGON_POINT_CLEAR を呼ぶ
++	List<Point> polygonPoints;
++
++	public void GDrawPolygonAddPoint(int x, int y)
++	{
++		if (g == null)
++			throw new NullReferenceException();
++		polygonPoints ??= [];
++		polygonPoints.Add(new Point(x, y));
++	}
++
++	public void GDrawPolygonClearPoint()
++	{
++		if (g == null)
++			throw new NullReferenceException();
++		polygonPoints?.Clear();
++	}
++
++	public void GDrawPolygon()
++	{
++		Load();
++		if (g == null)
++			throw new NullReferenceException();
++		//2点だと線分にしかならないので、多角形として意味を持つ3点から
++		if (polygonPoints == null || polygonPoints.Count < 3)
++			throw new CodeEE(trerror.PolygonNeedsPoints.Text);
++
++		drawImgList = null;
++		if (pen != null)
++			g.DrawPolygon(pen, [.. polygonPoints]);
++		else
++		{
++			using Pen p = new(Config.ForeColor);
++			g.DrawPolygon(p, [.. polygonPoints]);
++		}
++	}
++
++	public void GFillPolygon()
++	{
++		Load();
++		if (g == null)
++			throw new NullReferenceException();
++		if (polygonPoints == null || polygonPoints.Count < 3)
++			throw new CodeEE(trerror.PolygonNeedsPoints.Text);
++
++		drawImgList = null;
++		if (brush != null)
++			g.FillPolygon(brush, [.. polygonPoints]);
++		else
++		{
++			using SolidBrush b = new(Config.ForeColor);
++			g.FillPolygon(b, [.. polygonPoints]);
++		}
++	}
++	#endregion
++
+ 	#region EE_GDRAWLINE
+ 	public void GDrawLine(int fromX, int fromY, int forX, int forY)
+ 	{
+-- 
+2.51.0.windows.1
+

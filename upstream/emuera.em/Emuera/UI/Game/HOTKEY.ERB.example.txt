@@ -1,0 +1,74 @@
+@HOTKEY(KEY)
+;Example file for hotkey functionality.
+;Read HotkeyState.cs for more info.
+IF STATE:0 == 0 ;other things
+	SIF KEY == KEYS:A
+		RETURN 0
+	SIF KEY == KEYS:S
+		RETURN 1
+	SIF KEY == KEYS:D
+		RETURN 2
+	SIF KEY == KEYS:F
+		RETURN 3
+	SIF KEY == KEYS:W
+		RETURN 4
+	SIF KEY == KEYS:E
+		RETURN 5
+	SIF KEY == KEYS:R
+		RETURN 6
+	SIF KEY == KEYS:X
+		RETURN 7
+	SIF KEY == KEYS:C
+		RETURN 8
+	SIF KEY == KEYS:V
+		RETURN 9
+ENDIF
+IF STATE:0 == 1 ;looking at character, normal view
+	SIF KEY == KEYS:D
+		RETURN 811 ;where everyone is
+	SIF KEY == KEYS:F
+		RETURN 400 ;map
+	SIF KEY == KEYS:G
+		RETURN 405 ;go out
+	IF KEY == KEYS:V
+		SIF STATE:1 == 0
+			RETURN 351 ;time not stopped, follow me
+		RETURN 825 ;time stopped, gather pants
+	ENDIF
+	SIF KEY == KEYS:C
+		RETURN 410 ;cleaning
+	IF KEY == KEYS:E
+		SIF STATE:1 == 0
+			RETURN 300 ;time not stopped, talk
+		RETURN 817 ;time stopped, gather
+	ENDIF
+ENDIF
+;can I stack SIF? Let's not for now.
+IF STATE:0 == 2 ;where everyone
+	SIF KEY == KEYS:A
+		RETURN 0 ;where everyone stop
+ENDIF
+IF STATE:0 == 3 ;map display
+	SIF KEY == KEYS:A
+		RETURN 283 ;map display stop
+	SIF KEY == KEYS:R
+		RETURN 286 ;next map
+	SIF KEY == KEYS:W
+		RETURN 284 ;previous map
+ENDIF
+IF STATE:0 == 4 ;sex receiving
+	SIF KEY == KEYS:F
+		RETURN STATE:2 ;do nothing/partner initiated sex
+	SIF KEY == KEYS:R
+		RETURN 312 ;kiss
+ENDIF
+IF KEY == KEYS:T
+	SIF STATE:1 == 0
+		RETURN 355 ;time stop
+	RETURN 999 ;time resume
+ENDIF
+
+SIF KEY == KEYS:B
+	RETURN 100 ;go out stop
+
+RETURN -1

@@ -1,0 +1,259 @@
+From aaef3fae5e40628710dba0e43631349bff05dae0 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 13:24:20 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20<font=20size>=20=E3=82=92?=
+ =?UTF-8?q?=E7=A7=BB=E6=A4=8D=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+.netEmuera は <font size> でフォントの大きさを変えられる
+(HtmlManager.cs:456 の ParseSizeValue。既定は設定フォントサイズに対する
+%で、px を付ければピクセル指定)。EM+EE の StringStyle は大きさを持たず
+FontFactory.GetFont が常に Config.FontSize を使うため、
+ShinEraTenseiP のショップで <font size = '75'> に当たって停止していた
+(10_アイコン描画.ERB:506 の @PRINT_TALK)。ゲーム内に12箇所ある。
+
+StringStyle.FontSize は「0 は未指定」にしてある。設定のフォントサイズは
+実行中に変わるので、生成時の値を写し取らないため。
+
+FontFactory は GetFont 本体に触らず多重定義を末尾に足す形にした。
+andEmuera の 10-android-portability が GetFont を丸ごと書き換えており、
+本体を変えると Android 側でパッチが当たらなくなるため。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/FontFactory.cs              | 40 +++++++++++++++++++++++++
+ Emuera/UI/Game/ConsoleStyledString.cs |  3 +-
+ Emuera/UI/Game/HtmlManager.cs         | 43 +++++++++++++++++++++++++--
+ Emuera/UI/Game/StringStyle.cs         | 18 ++++++++---
+ 4 files changed, 96 insertions(+), 8 deletions(-)
+
+diff --git a/Emuera/UI/FontFactory.cs b/Emuera/UI/FontFactory.cs
+index 2dc2c32..967baac 100644
+--- a/Emuera/UI/FontFactory.cs
++++ b/Emuera/UI/FontFactory.cs
+@@ -90,4 +90,44 @@ internal class FontFactory
+ 		}
+ 		fontDic.Clear();
+ 	}
++
++	#region 統合_netEmuera_fontサイズ
++	/// <summary>
++	/// &lt;font size&gt; で大きさが指定されたとき用。既定の大きさなら従来の GetFont に回す。
++	/// GetFont 本体は andEmuera 側が丸ごと書き換えているので、そこには触らずここに足す
++	/// </summary>
++	public static Font GetFont(string requestFontName, FontStyle style, int requestFontSize)
++	{
++		if (requestFontSize <= 0 || requestFontSize == Config.FontSize)
++			return GetFont(requestFontName, style);
++		string fn = requestFontName;
++		if (string.IsNullOrEmpty(requestFontName))
++			fn = Config.FontName;
++		var key = (fn, requestFontSize, style);
++		if (fontDic.TryGetValue(key, out var cached))
++			return cached;
++		Font sizedFont;
++		try
++		{
++			#region EE_フォントファイル対応
++			foreach (FontFamily ff in GlobalStatic.Pfc.Families)
++			{
++				if (ff.Name == fn)
++				{
++					sizedFont = new Font(ff, requestFontSize, style, GraphicsUnit.Pixel);
++					goto foundfont;
++				}
++			}
++			sizedFont = new Font(fn, requestFontSize, style, GraphicsUnit.Pixel);
++		}
++		catch
++		{
++			return null;
++		}
++	foundfont:
++		#endregion
++		fontDic.Add(key, sizedFont);
++		return sizedFont;
++	}
++	#endregion
+ }
+diff --git a/Emuera/UI/Game/ConsoleStyledString.cs b/Emuera/UI/Game/ConsoleStyledString.cs
+index bfe590d..1fa9a50 100644
+--- a/Emuera/UI/Game/ConsoleStyledString.cs
++++ b/Emuera/UI/Game/ConsoleStyledString.cs
+@@ -18,7 +18,8 @@ internal sealed class ConsoleStyledString : AConsoleColoredPart
+ 		//    str = str.Replace("\t", "");
+ 		Text = str;
+ 		StringStyle = style;
+-		Font = FontFactory.GetFont(style.Fontname, style.FontStyle);
++		//統合_netEmuera_fontサイズ: <font size> の分を渡す
++		Font = FontFactory.GetFont(style.Fontname, style.FontStyle, style.FontSize);
+ 		if (Font == null)
+ 		{
+ 			Error = true;
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index 429d4e6..1e6d630 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -226,6 +226,10 @@ internal static class HtmlManager
+ 		public int Color = -1;
+ 		public int BColor = -1;
+ 		public string FontName;
++		#region 統合_netEmuera_fontサイズ
++		/// <summary>ピクセル単位。-1 は未指定</summary>
++		public int FontSize = -1;
++		#endregion
+ 		//public int PointX = 0;
+ 		//public bool PointXisLocked = false;
+ 	}
+@@ -287,6 +291,8 @@ internal static class HtmlManager
+ 			Color b = Config.FocusColor;
+ 			string fontname = null;
+ 			bool colorChanged = false;
++			//統合_netEmuera_fontサイズ: 0 は未指定
++			int fontSize = 0;
+ 			if (FonttagList.Count > 0)
+ 			{
+ 				HtmlAnalzeStateFontTag font = FonttagList[^1];
+@@ -300,8 +306,10 @@ internal static class HtmlManager
+ 				{
+ 					b = Color.FromArgb(font.BColor >> 16, font.BColor >> 8 & 0xFF, font.BColor & 0xFF);
+ 				}
++				if (font.FontSize >= 0)
++					fontSize = font.FontSize;
+ 			}
+-			return new StringStyle(c, colorChanged, b, FontStyle, fontname);
++			return new StringStyle(c, colorChanged, b, FontStyle, fontname, fontSize);
+ 		}
+ 	}
+ 
+@@ -821,7 +829,8 @@ internal static class HtmlManager
+ 	}
+ 	private static string getStringStyleStartingTag(StringStyle style)
+ 	{
+-		bool fontChanged = !((style.Fontname == null || style.Fontname == Config.FontName) && !style.ColorChanged && style.ButtonColor == Config.FocusColor);
++		//統合_netEmuera_fontサイズ: サイズが指定されていればそれも <font> に出す
++		bool fontChanged = !((style.Fontname == null || style.Fontname == Config.FontName) && !style.ColorChanged && style.ButtonColor == Config.FocusColor && style.FontSize <= 0);
+ 		if (!fontChanged && style.FontStyle == FontStyle.Regular)
+ 			return "";
+ 		StringBuilder b = new();
+@@ -848,6 +857,15 @@ internal static class HtmlManager
+ 				b.Append(colorValue.ToString("X6"));
+ 				b.Append("'");
+ 			}
++			#region 統合_netEmuera_fontサイズ
++			//px で出す。読み直したとき設定フォントサイズに影響されない
++			if (style.FontSize > 0)
++			{
++				b.Append(" size='");
++				b.Append(style.FontSize);
++				b.Append("px'");
++			}
++			#endregion
+ 			b.Append(">");
+ 		}
+ 		if (style.FontStyle != FontStyle.Regular)
+@@ -867,7 +885,8 @@ internal static class HtmlManager
+ 
+ 	private static string getClosingStyleStartingTag(StringStyle style)
+ 	{
+-		bool fontChanged = !((style.Fontname == null || style.Fontname == Config.FontName) && !style.ColorChanged && style.ButtonColor == Config.FocusColor);
++		//統合_netEmuera_fontサイズ: 開始タグ側と同じ条件で判定する
++		bool fontChanged = !((style.Fontname == null || style.Fontname == Config.FontName) && !style.ColorChanged && style.ButtonColor == Config.FocusColor && style.FontSize <= 0);
+ 		if (!fontChanged && style.FontStyle == FontStyle.Regular)
+ 			return "";
+ 		StringBuilder b = new();
+@@ -1543,6 +1562,21 @@ internal static class HtmlManager
+ 									throw new CodeEE(string.Format(trerror.DuplicateAttribute.Text, tag, word.Code));
+ 								font.FontName = attrValue;
+ 								break;
++							#region 統合_netEmuera_fontサイズ
++							//.netEmuera の <font size>。他の寸法と同じく既定は設定フォントサイズに対する%で、
++							//px を付ければピクセル指定になる
++							case "size":
++								{
++									if (font.FontSize >= 0)
++										throw new CodeEE(string.Format(trerror.DuplicateAttribute.Text, tag, word.Code));
++									MixedNum size = null;
++									ParseMixedNum(ref size, tag, word.Code, attrValue);
++									font.FontSize = MixedNum.ToPixel(size);
++									if (font.FontSize <= 0)
++										throw new CodeEE(string.Format(trerror.AttributeCanNotInterpretNum.Text, tag, word.Code));
++									break;
++								}
++							#endregion
+ 							//case "pos":
+ 							//	{
+ 							//		//throw new NotImplCodeEE();
+@@ -1569,6 +1603,9 @@ internal static class HtmlManager
+ 							font.BColor = oldFont.BColor;
+ 						if (font.FontName == null)
+ 							font.FontName = oldFont.FontName;
++						//統合_netEmuera_fontサイズ
++						if (font.FontSize < 0)
++							font.FontSize = oldFont.FontSize;
+ 					}
+ 					state.FonttagList.Add(font);
+ 					return null;
+diff --git a/Emuera/UI/Game/StringStyle.cs b/Emuera/UI/Game/StringStyle.cs
+index b617ab2..09a28a9 100644
+--- a/Emuera/UI/Game/StringStyle.cs
++++ b/Emuera/UI/Game/StringStyle.cs
+@@ -19,12 +19,14 @@ internal struct StringStyle
+ 			Fontname = Config.FontName;
+ 		else
+ 			Fontname = fontname;
++		FontSize = 0;
+ 	}
+ 
+ 	/// <summary>
+ 	/// HTML用。ColorChangedを固定する。
+ 	/// </summary>
+-	public StringStyle(Color color, bool colorChanged, Color buttonColor, FontStyle fontStyle, string fontname)
++	//統合_netEmuera_fontサイズ: fontSize は <font size> 用。0 は未指定
++	public StringStyle(Color color, bool colorChanged, Color buttonColor, FontStyle fontStyle, string fontname, int fontSize = 0)
+ 	{
+ 		Color = color;
+ 		ButtonColor = buttonColor;
+@@ -34,6 +36,7 @@ internal struct StringStyle
+ 			Fontname = Config.FontName;
+ 		else
+ 			Fontname = fontname;
++		FontSize = fontSize;
+ 	}
+ 
+ 	public Color Color;
+@@ -41,19 +44,26 @@ internal struct StringStyle
+ 	public bool ColorChanged;
+ 	public FontStyle FontStyle;
+ 	public string Fontname;
++	#region 統合_netEmuera_fontサイズ
++	/// <summary>
++	/// &lt;font size&gt; で指定されたピクセル単位の文字の大きさ。0 は未指定。
++	/// 設定のフォントサイズは実行中に変わるので、既定値をここに写し取らない
++	/// </summary>
++	public int FontSize;
++	#endregion
+ 	public override bool Equals(object? obj)
+ 	{
+ 		if (obj == null || obj is not StringStyle ss)
+ 			return false;
+-		return Color == ss.Color && ButtonColor == ss.ButtonColor && ColorChanged == ss.ColorChanged && FontStyle == ss.FontStyle && Fontname.Equals(ss.Fontname, Config.SCIgnoreCase);
++		return Color == ss.Color && ButtonColor == ss.ButtonColor && ColorChanged == ss.ColorChanged && FontStyle == ss.FontStyle && FontSize == ss.FontSize && Fontname.Equals(ss.Fontname, Config.SCIgnoreCase);
+ 	}
+ 	public override int GetHashCode()
+ 	{
+-		return Color.GetHashCode() ^ ButtonColor.GetHashCode() ^ ColorChanged.GetHashCode() ^ FontStyle.GetHashCode() ^ Fontname.GetHashCode();
++		return Color.GetHashCode() ^ ButtonColor.GetHashCode() ^ ColorChanged.GetHashCode() ^ FontStyle.GetHashCode() ^ FontSize.GetHashCode() ^ Fontname.GetHashCode();
+ 	}
+ 	public static bool operator ==(StringStyle x, StringStyle y)
+ 	{
+-		return x.Color == y.Color && x.ButtonColor == y.ButtonColor && x.ColorChanged == y.ColorChanged && x.FontStyle == y.FontStyle && x.Fontname.Equals(y.Fontname, Config.SCIgnoreCase);
++		return x.Color == y.Color && x.ButtonColor == y.ButtonColor && x.ColorChanged == y.ColorChanged && x.FontStyle == y.FontStyle && x.FontSize == y.FontSize && x.Fontname.Equals(y.Fontname, Config.SCIgnoreCase);
+ 	}
+ 	public static bool operator !=(StringStyle x, StringStyle y)
+ 	{
+-- 
+2.51.0.windows.1
+

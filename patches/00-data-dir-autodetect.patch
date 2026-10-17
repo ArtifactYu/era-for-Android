@@ -1,0 +1,56 @@
+From a097c4175198704863caa53cdb7c0fe467d5a132 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 12:03:59 +0900
+Subject: [PATCH 01/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20Data=E3=83=95?=
+ =?UTF-8?q?=E3=82=A9=E3=83=AB=E3=83=80=E9=85=8D=E7=BD=AE=E3=81=AE=E8=87=AA?=
+ =?UTF-8?q?=E5=8B=95=E5=88=A4=E5=88=A5?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/Program.cs | 21 ++++++++++++++++++++-
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/Emuera/Program.cs b/Emuera/Program.cs
+index 39a6d8a..ab3d557 100644
+--- a/Emuera/Program.cs
++++ b/Emuera/Program.cs
+@@ -95,7 +95,7 @@ static partial class Program
+ 		}
+ 		else
+ 		{
+-			SetDirPaths(AssemblyData.WorkingDir);
++			SetDirPaths(ResolveGameDir(AssemblyData.WorkingDir));
+ 		}
+ 
+ 		#endregion
+@@ -321,6 +321,25 @@ static partial class Program
+ 		*/
+ 	}
+ 
++	#region 統合_Dataフォルダ配置の自動判別
++	/// <summary>
++	/// .netEmuera 系のバリアントは ERB/CSV を exe 直下ではなく Data\ 以下に置く。
++	/// 直下に ERB が無く Data\ERB がある場合だけ Data\ を実行ディレクトリとみなす。
++	/// --ExeDir が明示された場合はこの判別を通さない。
++	/// </summary>
++	private static string ResolveGameDir(string workingDir)
++	{
++		if (Directory.Exists(Path.Combine(workingDir, "erb")))
++			return workingDir;
++
++		string dataDir = Path.Combine(workingDir, "Data");
++		if (Directory.Exists(Path.Combine(dataDir, "erb")))
++			return dataDir;
++
++		return workingDir;
++	}
++	#endregion
++
+ 	[MemberNotNull(nameof(ExeDir))]
+ 	[MemberNotNull(nameof(CsvDir))]
+ 	[MemberNotNull(nameof(ErbDir))]
+-- 
+2.51.0.windows.1
+

@@ -1,0 +1,50 @@
+From 4f8d0ba653e63798fe6a25525aac74a0c93058c3 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 14:12:53 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20button=20=E3=81=AE?=
+ =?UTF-8?q?=E4=B8=AD=E3=81=AE=20div=20=E3=82=92=E3=82=AF=E3=83=AA=E3=83=83?=
+ =?UTF-8?q?=E3=82=AF=E3=81=A7=E3=81=8D=E3=82=8B=E3=82=88=E3=81=86=E3=81=AB?=
+ =?UTF-8?q?=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+<button><div>…</div></button> で div の矩形をそのボタンの当たり判定にする。
+
+ConsoleDivPart は表示ノードとしての Width が 0 なので、親ボタン側の
+判定（button.PointX + button.Width）では拾えない。div 用の
+TestChildHitbox は div の中のボタンしか探さないため、
+「div の外側にボタンがある」この形はどちらの経路でも拾えなかった。
+その結果、ShinEraTenseiP のショップで店の枠をタップ/クリックしても
+「ここは選択肢ではありません」になっていた。
+
+div の中にボタンがあればそちらを優先し、無い（または中身がボタンで
+ない）ときだけ親ボタンを返す。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index 9a4119e..9f4643f 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -223,6 +223,14 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 			}
+ 			relPointY += Config.Config.LineHeight;
+ 		}
++		#region 統合_netEmuera_button内div
++		//中にボタンが無くても、この div ごとボタンの中身なら div の矩形を当たり判定にする。
++		//ここまで来ているのは矩形の中を指しているとき。
++		//<button><div>…</div></button>（ShinEraTenseiP の SET_BUTTON_TAG がこの形）では
++		//div は表示ノードとしての Width が 0 なので、親ボタン側の判定では拾えない
++		if ((pointing == null || !pointing.IsButton) && Parent != null && Parent.IsButton)
++			pointing = Parent;
++		#endregion
+ 		return pointing;
+ 	}
+ 	public override void DrawTo(Graphics graph, int pointY, bool isSelecting, bool isBackLog, bool isFocus, TextDrawingMode mode, bool isButton = false)
+-- 
+2.51.0.windows.1
+

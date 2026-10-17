@@ -1,0 +1,75 @@
+From 520b7d7888c874714ae78b847a4fa4166661290b Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 20:27:40 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20INPUTMOUSEKEY=20=E3=81=A7?=
+ =?UTF-8?q?=E6=8A=BC=E3=81=97=E3=81=9F=E3=83=9C=E3=82=BF=E3=83=B3=E3=81=AE?=
+ =?UTF-8?q?=E5=80=A4=E3=82=92=20RESULTS:5=20=E3=81=AB=E5=85=A5=E3=82=8C?=
+ =?UTF-8?q?=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ShinEraTenseiP の ＳＨＯＰ関連\RAG_SHOP\RAG_SHOP奴隷交換.ERB:479 が
+ラグの店のチケット画面の選択を
+
+    INPUTMOUSEKEY
+    IF RESULT:0 == 1
+        IF RESULT:1 == 0x100000     ; 左クリック
+            RESULTS '= TOHALF(RESULTS:5)
+
+と読むが、EM+EE は押したボタンの値のうち文字列のものを
+GlobalStatic.VEvaluator.RESULTS（添字0）にしか入れていなかった。
+そのため RESULTS:5 は空のままで、LOOP RESULTS == "" を抜けられず、
+左クリックが素通りしていた（右クリックは ERB 側で "SPACE" 決め打ちなので動く）。
+
+.netEmuera は入力を捕まえるたびに RESULT:5 / RESULTS:5 を初期化し、カーソルの下の
+ボタンの値を「整数なら RESULT:5、文字列なら RESULTS:5」へ入れる
+（EmueraConsole.InputMouseKey が FindButton してから代入する）。同じ持ち方に合わせた。
+
+RESULT:5 はマウスクリックのときは EM+EE も同じ値を渡していたので変わらない。
+キー入力やホイールでもカーソルの下のボタンを見るようになるぶんだけ .netEmuera 寄りになる。
+EM+EE の RESULTS（添字0）への代入はそのまま残してある。
+
+value に全角数字を書いたボタン（SET_BUTTON_TAG が TOFULL で作る）は Int64.TryParse を
+通らないので文字列扱いになり、RESULTS:5 に入る。ERB 側が TOHALF して読むのと一致する。
+
+INPUTMOUSEKEY とボタンだけを書いた最小 ERB を TestHarness の --serve に載せて実際に
+左クリックし、当てる前は S5=[]、当てた後は value='SPACE' で S5=[SPACE]、
+value='１' で S5=[１] になることを確認した。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/EmueraConsole.cs | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/Emuera/UI/Game/EmueraConsole.cs b/Emuera/UI/Game/EmueraConsole.cs
+index 14c927d..6e82b0f 100644
+--- a/Emuera/UI/Game/EmueraConsole.cs
++++ b/Emuera/UI/Game/EmueraConsole.cs
+@@ -1181,6 +1181,23 @@ internal sealed partial class EmueraConsole : IDisposable
+ 	{
+ 		// emuera.InputResult5(type, result1, result2, result3, result4);
+ 		process.InputResult5(type, result1, result2, result3, result4, result5);
++		#region 統合_netEmuera_INPUTMOUSEKEYのボタン値
++		//.netEmuera は入力を捕まえるたびに RESULT:5 / RESULTS:5 を初期化し、カーソルの下の
++		//ボタンの値を「整数なら RESULT:5、文字列なら RESULTS:5」へ入れる。EM+EE は文字列の値を
++		//RESULTS(添字0)にしか入れていなかったため、RESULTS:5 を読むゲームでボタンの左クリックが
++		//素通りしていた（ShinEraTenseiP の RAG_SHOP奴隷交換.ERB はラグの店の選択を
++		//TOHALF(RESULTS:5) で読むので、押しても RESULTS が空のままループしていた）。
++		//RESULT:5 は InputResult5 が書くので、その後で入れ直す
++		process.InputInteger(5, 0);
++		process.InputString(5, "");
++		if (selectingButton != null)
++		{
++			if (selectingButton.IsInteger)
++				process.InputInteger(5, selectingButton.Input);
++			else
++				process.InputString(5, selectingButton.Inputs);
++		}
++		#endregion
+ 		inProcess = true;
+ 		try
+ 		{
+-- 
+2.51.0.windows.1
+

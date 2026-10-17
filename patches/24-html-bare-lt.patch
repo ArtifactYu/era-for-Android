@@ -1,0 +1,76 @@
+From b639a6fc1a79673b610796b54ea43e72633f2fae Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 01:42:17 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E3=82=BF=E3=82=B0?=
+ =?UTF-8?q?=E3=81=AB=E3=81=AA=E3=82=89=E3=81=AA=E3=81=84=20'<'=20=E3=81=AF?=
+ =?UTF-8?q?=E6=96=87=E5=AD=97=E3=81=A8=E3=81=97=E3=81=A6=E5=87=BA=E3=81=99?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ShinEraTenseiP の 調教関連/USERCOM.ERB:313 が
+<button value='<'>[<]減</button> … <button value='>'>増[>]</button>
+というコマンド数の増減ボタンを作る。[<] や [>] は本文だが、EM+EE の
+html2DisplayLine は '<' を見たら必ずタグの開始とみなすため、']減</button>' を
+属性列として字句解析に渡してしまい、']' が余る。結果
+「'['に対応する']'が見つかりません」になって調教画面が開けなかった。
+
+.netEmuera は HTML パーサ(AngleSharp)なので、HTML の規則(tag open state)どおり
+'<' の次が英字でも '/' でもなければタグとせず、'<' をそのまま文字として出す。
+その判定に合わせる。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/HtmlManager.cs | 29 +++++++++++++++++++++++++++++
+ 1 file changed, 29 insertions(+)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index c70679b..81b41c4 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -553,6 +553,14 @@ internal static class HtmlManager
+ 			}
+ 			else//タグ解析
+ 			{
++				//統合_netEmuera: タグにならない'<'はそのまま文字として出す
++				if (!isTagStart(st))
++				{
++					cssList.Add(new ConsoleStyledString("<", state.GetSS()));
++					state.LineHead = false;
++					st.ShiftNext();
++					continue;
++				}
+ 				st.ShiftNext();
+ 				AConsoleDisplayNode part = tagAnalyze(state, st);
+ 				if (st.Current != '>')
+@@ -966,6 +974,27 @@ internal static class HtmlManager
+ 		//Replaceは読み位置を書き換えの先頭に戻すので、この後の字句解析は従来どおり進む
+ 		st.Replace(start, pos - start, buffer.ToString());
+ 	}
++
++	/// <summary>
++	/// '&lt;' がタグの開始として妥当かを返す。stは'&lt;'を指していること。
++	/// .netEmuera は HTML パーサ(AngleSharp)なので、HTMLの規則どおり '&lt;' の次が英字でも
++	/// '/' でもないときはタグと見なさず、'&lt;' をそのまま文字として出す。
++	/// EM+EE は '&lt;' を必ずタグ開始として扱うため、[&lt;]減 のような本文で解析が止まっていた
++	/// （ShinEraTenseiP の USERCOM.ERB がコマンド数の増減ボタンをこの形で書く）。
++	/// </summary>
++	private static bool isTagStart(CharStream st)
++	{
++		string src = st.RowString;
++		int pos = st.CurrentPosition + 1;
++		if (pos >= src.Length)
++			return false;
++		//コメント(<!--)は従来どおりタグ側で扱う
++		if (src[pos] == '!')
++			return true;
++		if (src[pos] == '/')
++			pos++;
++		return pos < src.Length && char.IsAsciiLetter(src[pos]);
++	}
+ 	#endregion
+ 
+ 	private static AConsoleDisplayNode tagAnalyze(HtmlAnalzeState state, CharStream st)
+-- 
+2.51.0.windows.1
+

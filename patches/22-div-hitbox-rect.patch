@@ -1,0 +1,54 @@
+﻿From dd19d10b494135866d00d9710c35750779c74217 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 23:01:43 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20div=20=E3=81=AE=E5=BD=93?=
+ =?UTF-8?q?=E3=81=9F=E3=82=8A=E5=88=A4=E5=AE=9A=E3=81=AE=E7=9F=A9=E5=BD=A2?=
+ =?UTF-8?q?=E3=82=92=E6=8F=8F=E7=94=BB=E3=81=A8=E6=8F=83=E3=81=88=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+TestChildHitbox の矩形が DrawTo とずれていたのを直す。
+
+  * Y に枠の厚み(margin/border/padding)を足しながら高さは外枠のままだったので、
+    枠のぶん下にずれていた。border_width や padding を付けた div で顕著
+  * 自動サイズの div は DrawTo が中身の実寸(contentWidth/contentHeight)まで
+    クリップを広げるのに、判定は行数ベースの矩形のままだった。
+    行高を超える画像を入れた div は、はみ出した部分を押せなかった
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index 517d293..b23fa30 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -208,11 +208,20 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 	public ConsoleButtonString TestChildHitbox(int pointX, int pointY, int relPointY)
+ 	{
+ 		ConsoleButtonString pointing = null;
+-		#region EE_div各要素の修正
+-		var rect = new Rectangle(PointX + xOffset, relPointY + PointY + yOffset, width, Height);
++		#region 統合_netEmuera_div当たり判定
++		//当たり判定の矩形を DrawTo と揃える。外枠がそのまま当たり判定で、
++		//枠(margin/border/padding)の内側が中身の原点。
++		//従来は Y だけ枠のぶん下げて高さは外枠のままだったので、枠の厚みぶん下にずれていた
++		int boxTop = relPointY + PointY;
++		int contentTop = boxTop + yOffset;
++		var rect = new Rectangle(PointX + xOffset, boxTop, width, Height);
++		//自動サイズのときは DrawTo が中身の実寸までクリップを広げるので、判定もそこまで広げる。
++		//行高を超える画像を入れた div は、これが無いとはみ出した部分を押せない
++		if (autoSized)
++			rect = Rectangle.Union(rect, new Rectangle(PointX + xOffset + divXOffset, contentTop, contentWidth, contentHeight));
+ 		#endregion
+ 		if (!rect.Contains(pointX, pointY)) return null;
+-		relPointY = rect.Y;
++		relPointY = contentTop;
+ 		foreach (var line in children)
+ 		{
+ 			for (int b = 0; b < line.Buttons.Length; b++)
+-- 
+2.51.0.windows.1
+

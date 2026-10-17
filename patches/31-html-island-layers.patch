@@ -1,0 +1,328 @@
+From a3ca626d7db52ee141c326d6d5462347a6f0a2b0 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 17:57:47 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20HTML=5FPRINT=5FISLAND=20?=
+ =?UTF-8?q?=E3=81=AE=E5=B1=A4(=E7=AC=AC2=E5=BC=95=E6=95=B0)=E3=82=92?=
+ =?UTF-8?q?=E5=8A=B9=E3=81=8B=E3=81=9B=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+EM+EE は島を1本のリストに積むだけで、第2引数の層を捨てていた。
+そのため出した順に描かれ、ShinEraTenseiP の確認ダイアログのように
+「箱を 99、画面暗転を 98」と後から下の層を出す書き方だと、
+暗転がダイアログの上に乗って画面全体が暗くなっていた
+（関数\汎用組み込み関数\入力関数\INPUT_YN_POPUP.ERB）。
+
+.netEmuera は層ごとにリストを持ち（SortedDictionary）、小さい層から順に描く。
+当たり判定は逆に手前から見る。HTML_PRINT_ISLAND_CLEAR も層を取り、
+指定があればその層だけ消す（MAG_PORTRAIT.ERB は本体を 1、入力を 2 に置き、
+入力の層だけ消して本体を残す）。同じ持ち方に合わせた。
+
+HTML_PRINT_ISLAND の第2引数は EM+EE の引数解析（SpHtmlPrint.Opt）が
+既に読んでいたので、命令が渡すようにするだけで足りる。
+HTML_PRINT_ISLAND_CLEAR は VOID だったので、層を省略できる引数を足した。
+
+ダイアログを 99、画面暗転を 98 に出す最小 ERB で、当てる前はダイアログの文字も
+暗転がかかって 192→80 になり、当てた後は 192 のままになることを確認した。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/Runtime/Script/Statements/Argument.cs  | 11 +++
+ .../Script/Statements/ArgumentBuilder.cs      | 26 ++++++
+ .../Script/Statements/FunctionArgType.cs      |  3 +
+ .../Script/Statements/Instraction.Child.cs    | 19 +++-
+ Emuera/UI/Game/EmueraConsole.Print.cs         | 24 +++++-
+ Emuera/UI/Game/EmueraConsole.cs               | 86 +++++++++++--------
+ 6 files changed, 127 insertions(+), 42 deletions(-)
+
+diff --git a/Emuera/Runtime/Script/Statements/Argument.cs b/Emuera/Runtime/Script/Statements/Argument.cs
+index 8694620..f3c8599 100644
+--- a/Emuera/Runtime/Script/Statements/Argument.cs
++++ b/Emuera/Runtime/Script/Statements/Argument.cs
+@@ -83,6 +83,17 @@ internal sealed class SpHtmlPrint : Argument
+ 	readonly public AExpression Opt;
+ }
+ #endregion
++#region 統合_netEmuera_island層
++/// <summary>HTML_PRINT_ISLAND_CLEAR の引数。Layer が null なら全部消す</summary>
++internal sealed class SpIslandClear : Argument
++{
++	public SpIslandClear(AExpression layer)
++	{
++		Layer = layer;
++	}
++	readonly public AExpression Layer;
++}
++#endregion
+ internal abstract class Argument
+ {
+ 	public bool IsConst;
+diff --git a/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs b/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs
+index 12bb633..6dca6e5 100644
+--- a/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs
++++ b/Emuera/Runtime/Script/Statements/ArgumentBuilder.cs
+@@ -248,8 +248,34 @@ internal static partial class ArgumentParser
+ 		#region 統合_netEmuera
+ 		argb[FunctionArgType.SP_MATCHALL] = new SP_MATCHALL_ArgumentBuilder();
+ 		#endregion
++		#region 統合_netEmuera_island層
++		argb[FunctionArgType.SP_HTML_PRINT_ISLAND_CLEAR] = new SP_HTML_PRINT_ISLAND_CLEAR_ArgumentBuilder();
++		#endregion
+ 	}
+ 
++	#region 統合_netEmuera_island層
++	/// <summary>
++	/// HTML_PRINT_ISLAND_CLEAR（<層>）。層を省略したら島を全部消す
++	/// </summary>
++	private sealed class SP_HTML_PRINT_ISLAND_CLEAR_ArgumentBuilder : ArgumentBuilder
++	{
++		public SP_HTML_PRINT_ISLAND_CLEAR_ArgumentBuilder()
++		{
++			argumentTypeArray = [typeof(long)];
++			minArg = 0;
++		}
++		public override Argument CreateArgument(InstructionLine line, ExpressionMediator exm)
++		{
++			List<AExpression> terms = popTerms(line);
++			if (!checkArgumentType(line, exm, terms))
++				return null;
++			if (terms.Count == 0 || terms[0] == null)
++				return new SpIslandClear(null);
++			return new SpIslandClear(terms[0]);
++		}
++	}
++	#endregion
++
+ 	#region 統合_netEmuera
+ 	private sealed class SP_MATCHALL_ArgumentBuilder : ArgumentBuilder
+ 	{
+diff --git a/Emuera/Runtime/Script/Statements/FunctionArgType.cs b/Emuera/Runtime/Script/Statements/FunctionArgType.cs
+index d610284..7f3027d 100644
+--- a/Emuera/Runtime/Script/Statements/FunctionArgType.cs
++++ b/Emuera/Runtime/Script/Statements/FunctionArgType.cs
+@@ -88,4 +88,7 @@ enum FunctionArgType
+ 	#region 統合_netEmuera
+ 	SP_MATCHALL,//<変数>（, <キャラ変数の添字>）, <探す値>（, <開始>（, <終了>））
+ 	#endregion
++	#region 統合_netEmuera_island層
++	SP_HTML_PRINT_ISLAND_CLEAR,//（<層>）
++	#endregion
+ }
+diff --git a/Emuera/Runtime/Script/Statements/Instraction.Child.cs b/Emuera/Runtime/Script/Statements/Instraction.Child.cs
+index 9d40ea0..57c51a3 100644
+--- a/Emuera/Runtime/Script/Statements/Instraction.Child.cs
++++ b/Emuera/Runtime/Script/Statements/Instraction.Child.cs
+@@ -448,7 +448,11 @@ internal sealed partial class FunctionIdentifier
+ 				str = arg.ConstStr;
+ 			else
+ 				str = ((SpHtmlPrint)func.Argument).Str.GetStrValue(exm);
+-			exm.Console.PrintHTMLIsland(str);
++			#region 統合_netEmuera_island層
++			//第2引数は島の層。小さいほど奥に描く（省略時は 0）
++			int layer = arg.Opt != null ? (int)arg.Opt.GetIntValue(exm) : (int)arg.ConstInt;
++			exm.Console.PrintHTMLIsland(str, layer);
++			#endregion
+ 		}
+ 	}
+ 
+@@ -457,12 +461,21 @@ internal sealed partial class FunctionIdentifier
+ 		public HTML_PRINT_ISLAND_CLEAR_Instruction()
+ 		{
+ 			flag = EXTENDED | METHOD_SAFE;
+-			ArgBuilder = ArgumentParser.GetArgumentBuilder(FunctionArgType.VOID);
++			#region 統合_netEmuera_island層
++			//層を省略したら全部、指定したらその層だけ消す
++			ArgBuilder = ArgumentParser.GetArgumentBuilder(FunctionArgType.SP_HTML_PRINT_ISLAND_CLEAR);
++			#endregion
+ 		}
+ 
+ 		public override void DoInstruction(ExpressionMediator exm, InstructionLine func, ProcessState state)
+ 		{
+-			exm.Console.ClearHTMLIsland();
++			#region 統合_netEmuera_island層
++			var arg = (SpIslandClear)func.Argument;
++			if (arg.Layer == null)
++				exm.Console.ClearHTMLIsland();
++			else
++				exm.Console.ClearHTMLIsland((int)arg.Layer.GetIntValue(exm));
++			#endregion
+ 		}
+ 	}
+ 
+diff --git a/Emuera/UI/Game/EmueraConsole.Print.cs b/Emuera/UI/Game/EmueraConsole.Print.cs
+index 928e774..3c6b8bb 100644
+--- a/Emuera/UI/Game/EmueraConsole.Print.cs
++++ b/Emuera/UI/Game/EmueraConsole.Print.cs
+@@ -48,7 +48,7 @@ internal sealed partial class EmueraConsole : IDisposable
+ 		CBProc.ClearScreen();
+ 		#endregion
+ 		displayLineList.Clear();
+-		_htmlElementList.Clear();
++		_htmlElementListDict.Clear();
+ 		#region EM_私家版_描画拡張
+ 		ConsoleEscapedParts.Clear();
+ 		#endregion
+@@ -133,7 +133,8 @@ internal sealed partial class EmueraConsole : IDisposable
+ 	}
+ 
+ 	//完全に独立したHTML
+-	public void PrintHTMLIsland(string html)
++	//統合_netEmuera_island層: layer は第2引数。小さいほど奥に描く
++	public void PrintHTMLIsland(string html, int layer = 0)
+ 	{
+ 		#region 統合_netEmuera_island判定
+ 		//島の中身も当たり判定に使うので、div に親ボタンを持たせておく。
+@@ -151,13 +152,28 @@ internal sealed partial class EmueraConsole : IDisposable
+ 					foreach (var p in button.EscapedParts)
+ 						p.Parent = button;
+ 				}
+-		_htmlElementList.AddRange(lines);
++		#region 統合_netEmuera_island層
++		if (!_htmlElementListDict.TryGetValue(layer, out var elementList))
++		{
++			elementList = [];
++			_htmlElementListDict[layer] = elementList;
++		}
++		elementList.AddRange(lines);
++		#endregion
+ 		#endregion
+ 	}
+ 	public void ClearHTMLIsland()
+ 	{
+-		_htmlElementList.Clear();
++		_htmlElementListDict.Clear();
+ 	}
++	#region 統合_netEmuera_island層
++	/// <summary>HTML_PRINT_ISLAND_CLEAR に層が指定されたとき。その層だけ消す</summary>
++	public void ClearHTMLIsland(int layer)
++	{
++		if (_htmlElementListDict.TryGetValue(layer, out var elementList))
++			elementList.Clear();
++	}
++	#endregion
+ 
+ 
+ 	/// <summary>
+diff --git a/Emuera/UI/Game/EmueraConsole.cs b/Emuera/UI/Game/EmueraConsole.cs
+index 225b6c0..14c927d 100644
+--- a/Emuera/UI/Game/EmueraConsole.cs
++++ b/Emuera/UI/Game/EmueraConsole.cs
+@@ -1649,7 +1649,13 @@ internal sealed partial class EmueraConsole : IDisposable
+ 	}
+ 	#endregion
+ 
+-	List<ConsoleDisplayLine> _htmlElementList = new(10);
++	#region 統合_netEmuera_island層
++	/// <summary>
++	/// HTML_PRINT_ISLAND の中身。第2引数の層ごとに分けて持つ。
++	/// 描くのは層の小さい順（＝奥から手前）で、.netEmuera と同じ並びになる
++	/// </summary>
++	readonly SortedDictionary<int, List<ConsoleDisplayLine>> _htmlElementListDict = [];
++	#endregion
+ 
+ 	/// <summary>
+ 	/// 1818以前のRefreshStringsの後半とm_RefreshStringsを融合
+@@ -1773,17 +1779,23 @@ internal sealed partial class EmueraConsole : IDisposable
+ 		#endregion
+ 
+ 		//真のHTML描画
+-		var y = 0;
+-		foreach (var element in _htmlElementList)
+-		{
+-			element.DrawTo(graph, y, false, false, Config.TextDrawingMode);
+-			#region 統合_netEmuera_island内div
+-			//ConsoleButtonString.DrawTo は div を読み飛ばし、島は ConsoleEscapedParts に
+-			//載らない（＝奥行きごとの描画に入らない）ので、島の div はここで自分で描く。
+-			//ShinEraTenseiP のエンカウント表示や画面暗転が <div> だけの島を出す
+-			ConsoleDivPart.DrawDivsIn(graph, element, y, Config.TextDrawingMode);
+-			#endregion
+-			y += Config.LineHeight;
++		//統合_netEmuera_island層: 層の小さい順（奥から手前）に描く。
++		//ShinEraTenseiP の確認ダイアログは箱を 99、画面暗転を 98 に出すので、
++		//順番を守らないと後から出した暗転がダイアログの上に乗ってしまう
++		foreach (var (_, elementList) in _htmlElementListDict)
++		{
++			var y = 0;
++			foreach (var element in elementList)
++			{
++				element.DrawTo(graph, y, false, false, Config.TextDrawingMode);
++				#region 統合_netEmuera_island内div
++				//ConsoleButtonString.DrawTo は div を読み飛ばし、島は ConsoleEscapedParts に
++				//載らない（＝奥行きごとの描画に入らない）ので、島の div はここで自分で描く。
++				//ShinEraTenseiP のエンカウント表示や画面暗転が <div> だけの島を出す
++				ConsoleDivPart.DrawDivsIn(graph, element, y, Config.TextDrawingMode);
++				#endregion
++				y += Config.LineHeight;
++			}
+ 		}
+ 
+ 		//ToolTip描画
+@@ -2297,37 +2309,41 @@ internal sealed partial class EmueraConsole : IDisposable
+ 		int relPointY = pointY - window.MainPicBox.Height;
+ 		#region 統合_netEmuera_island判定
+ 		//HTML_PRINT_ISLAND の中身は本文より後に最前面へ描かれるので、先に当たり判定を取る。
+-		//並びは描画（真のHTML描画）と同じく画面上端から Config.LineHeight 刻み
+-		int islandY = 0;
+-		foreach (ConsoleDisplayLine element in _htmlElementList)
++		//並びは描画（真のHTML描画）と同じく画面上端から Config.LineHeight 刻み。
++		//統合_netEmuera_island層: 手前（層の大きい方）から見る
++		foreach (var (_, elementList) in _htmlElementListDict.Reverse())
+ 		{
+-			for (int b = element.Buttons.Length - 1; b >= 0; b--)
++			int islandY = 0;
++			foreach (ConsoleDisplayLine element in elementList)
+ 			{
+-				ConsoleButtonString button = element.Buttons[b];
+-				if (button?.StrArray == null)
+-					continue;
+-				foreach (AConsoleDisplayNode part in button.StrArray)
++				for (int b = element.Buttons.Length - 1; b >= 0; b--)
+ 				{
+-					if (part is ConsoleDivPart div)
+-					{
+-						ConsoleButtonString childPointing = div.TestChildHitbox(pointX, pointY, islandY);
+-						if (childPointing == null)
+-							continue;
+-						pointing = childPointing;
+-						if (pointing.IsButton)
+-							goto breakfor;
++					ConsoleButtonString button = element.Buttons[b];
++					if (button?.StrArray == null)
+ 						continue;
+-					}
+-					if (part.PointX <= pointX && part.PointX + part.Width >= pointX
+-						&& islandY + part.Top <= pointY && islandY + part.Bottom >= pointY)
++					foreach (AConsoleDisplayNode part in button.StrArray)
+ 					{
+-						pointing = button;
+-						if (pointing.IsButton)
+-							goto breakfor;
++						if (part is ConsoleDivPart div)
++						{
++							ConsoleButtonString childPointing = div.TestChildHitbox(pointX, pointY, islandY);
++							if (childPointing == null)
++								continue;
++							pointing = childPointing;
++							if (pointing.IsButton)
++								goto breakfor;
++							continue;
++						}
++						if (part.PointX <= pointX && part.PointX + part.Width >= pointX
++							&& islandY + part.Top <= pointY && islandY + part.Bottom >= pointY)
++						{
++							pointing = button;
++							if (pointing.IsButton)
++								goto breakfor;
++						}
+ 					}
+ 				}
++				islandY += Config.LineHeight;
+ 			}
+-			islandY += Config.LineHeight;
+ 		}
+ 		#endregion
+ 		//下から上へ探索し発見次第打ち切り
+-- 
+2.51.0.windows.1
+

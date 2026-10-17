@@ -1,0 +1,122 @@
+From f09c4ed3da351f696b64f56604807dfe60561de3 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 17:28:39 +0900
+Subject: [PATCH 14/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E5=8F=B3=E3=82=AF?=
+ =?UTF-8?q?=E3=83=AA=E3=83=83=E3=82=AF=E7=9B=B8=E5=BD=93=E3=81=AE=E3=83=91?=
+ =?UTF-8?q?=E3=83=83=E3=83=89=E3=83=9C=E3=82=BF=E3=83=B3=E3=82=92=E8=BF=BD?=
+ =?UTF-8?q?=E5=8A=A0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+X ボタンをマウス右クリックとして扱う。ボタン選択中なら右クリックで
+決定（RESULT:1=2）、テキスト待ちならメッセージスキップ。
+INPUTMOUSEKEY 待ちの画面では実際の右クリックとして送る。
+---
+ Emuera/Runtime/Config/JSON/JSONConfigData.cs  |  5 +++-
+ .../UI/Framework/Forms/MainWindow.GamePad.cs  | 29 ++++++++++++-------
+ 2 files changed, 23 insertions(+), 11 deletions(-)
+
+diff --git a/Emuera/Runtime/Config/JSON/JSONConfigData.cs b/Emuera/Runtime/Config/JSON/JSONConfigData.cs
+index 40d6ac2..3ca4235 100644
+--- a/Emuera/Runtime/Config/JSON/JSONConfigData.cs
++++ b/Emuera/Runtime/Config/JSON/JSONConfigData.cs
+@@ -69,10 +69,13 @@ sealed class GamePadConfig
+ 	public int Left { get; set; } = 0x0004;
+ 	public int Right { get; set; } = 0x0008;
+ 
+-	//決定（クリック相当）と、入力欄を消すキャンセル
++	//決定（左クリック相当）と、入力欄を消すキャンセル
+ 	public int Decide { get; set; } = 0x1000;
+ 	public int Cancel { get; set; } = 0x2000;
+ 
++	//右クリック相当。era系では「本文を飛ばして進める」に割り当てられていることが多い
++	public int RightClick { get; set; } = 0x4000;
++
+ 	//履歴スクロール
+ 	public int ScrollUp { get; set; } = 0x0100;
+ 	public int ScrollDown { get; set; } = 0x0200;
+diff --git a/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+index b2c577d..636f98c 100644
+--- a/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
++++ b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+@@ -38,7 +38,7 @@ namespace MinorShift.Emuera.Forms
+ 			}
+ 
+ 			int pressed = GamePad.PollPressedButtons(gamePadClock.ElapsedMilliseconds);
+-		if (pressed == 0)
++			if (pressed == 0)
+ 				return;
+ 
+ 			GamePadConfig cfg = JSONConfig.Data.GamePad;
+@@ -53,7 +53,8 @@ namespace MinorShift.Emuera.Forms
+ 			if (console.IsWaitingPrimitive)
+ 			{
+ 				if ((pressed & cfg.Decide) != 0) { ClickByGamePad(MouseButtons.Left); return; }
+-				if ((pressed & cfg.Cancel) != 0) { ClickByGamePad(MouseButtons.Right); return; }
++				if ((pressed & cfg.RightClick) != 0) { ClickByGamePad(MouseButtons.Right); return; }
++				if ((pressed & cfg.Cancel) != 0) { console.PressPrimitiveKey(Keys.Escape, Keys.Escape, Keys.None); return; }
+ 				Keys key = PrimitiveKeyFromGamePad(pressed, cfg);
+ 				if (key != Keys.None)
+ 					console.PressPrimitiveKey(key, key, Keys.None);
+@@ -69,7 +70,13 @@ namespace MinorShift.Emuera.Forms
+ 
+ 			if ((pressed & cfg.Decide) != 0)
+ 			{
+-				DecideByGamePad();
++				DecideByGamePad(false);
++				return;
++			}
++
++			if ((pressed & cfg.RightClick) != 0)
++			{
++				DecideByGamePad(true);
+ 				return;
+ 			}
+ 
+@@ -104,10 +111,11 @@ namespace MinorShift.Emuera.Forms
+ 		}
+ 
+ 		/// <summary>
+-		/// 決定。マウス左クリックと同じ経路に流す。
++		/// 決定。マウスクリックと同じ経路に流す。
+ 		/// 選択中ボタンがあればその入力値を、無ければ単なる改行待ちの解除として扱う。
++		/// rightClick なら右クリック相当（era系では本文を飛ばして進める挙動になる）。
+ 		/// </summary>
+-		private void DecideByGamePad()
++		private void DecideByGamePad(bool rightClick)
+ 		{
+ 			//履歴を見ている最中は最新に戻すだけ
+ 			if (vScrollBar.Value != vScrollBar.Maximum)
+@@ -120,22 +128,23 @@ namespace MinorShift.Emuera.Forms
+ 			string str = console.SelectedString;
+ 			if (console.IsWaitingEnterKey && str == null)
+ 			{
+-				PressEnterKey(false, true);
++				PressEnterKey(rightClick, true);
+ 				return;
+ 			}
+ 			if (console.IsWaintingInputWithMouse && !console.IsError && str != null)
+ 			{
+-				GlobalStatic.Process.InputInteger(1, 1);
++				//RESULT:1 に押したボタン(左=1/右=2)が入る。マウスと同じ約束
++				GlobalStatic.Process.InputInteger(1, rightClick ? 2 : 1);
+ 				GlobalStatic.Process.InputString(1, str);
+-				console.PressEnterKey(false, str, true);
++				console.PressEnterKey(rightClick, str, true);
+ 				return;
+ 			}
+ 			if (str != null)
+ 			{
+-				console.PressEnterKey(false, str, true);
++				console.PressEnterKey(rightClick, str, true);
+ 				return;
+ 			}
+-			PressEnterKey(false, false);
++			PressEnterKey(rightClick, false);
+ 		}
+ 
+ 		private void ScrollLogByGamePad(int move)
+-- 
+2.51.0.windows.1
+

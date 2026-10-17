@@ -1,0 +1,79 @@
+{
+  "steps": [
+    {
+      "input": "<launch>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "100"
+    },
+    {
+      "input": "100"
+    },
+    {
+      "input": "101"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "4444"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    },
+    {
+      "input": "主種類降順"
+    }
+  ]
+}

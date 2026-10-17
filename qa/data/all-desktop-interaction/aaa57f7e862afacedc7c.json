@@ -1,0 +1,79 @@
+{
+  "steps": [
+    {
+      "input": "<launch>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "1"
+    },
+    {
+      "input": "100"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "40"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "40"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "1"
+    },
+    {
+      "input": "40"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "105"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "40"
+    },
+    {
+      "input": "0"
+    }
+  ]
+}

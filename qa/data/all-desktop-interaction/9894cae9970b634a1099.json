@@ -1,0 +1,43 @@
+{
+  "steps": [
+    {
+      "input": "<launch>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "324"
+    },
+    {
+      "input": "24"
+    },
+    {
+      "input": "22"
+    },
+    {
+      "input": "24"
+    },
+    {
+      "input": "30"
+    },
+    {
+      "input": "24"
+    },
+    {
+      "input": "31"
+    },
+    {
+      "input": "24"
+    }
+  ]
+}

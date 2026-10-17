@@ -1,0 +1,452 @@
+From 4f8b386371d8dde6265dd8e76fcfdb617b8ea21d Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 13:26:19 +0900
+Subject: [PATCH 07/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E3=82=B2=E3=83=BC?=
+ =?UTF-8?q?=E3=83=A0=E3=83=91=E3=83=83=E3=83=89(XInput)=E3=81=A7=E3=83=9C?=
+ =?UTF-8?q?=E3=82=BF=E3=83=B3=E9=81=B8=E6=8A=9E=E3=81=A8=E6=B1=BA=E5=AE=9A?=
+ =?UTF-8?q?=E3=81=8C=E3=81=A7=E3=81=8D=E3=82=8B=E3=82=88=E3=81=86=E3=81=AB?=
+ =?UTF-8?q?=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/Runtime/Config/JSON/JSONConfigData.cs  |  32 ++++
+ Emuera/Runtime/Utils/GamePad.cs               | 163 ++++++++++++++++++
+ .../UI/Framework/Forms/MainWindow.GamePad.cs  | 111 ++++++++++++
+ Emuera/UI/Framework/Forms/MainWindow.cs       |   4 +
+ Emuera/UI/Game/EmueraConsole.GamePad.cs       |  78 +++++++++
+ 5 files changed, 388 insertions(+)
+ create mode 100644 Emuera/Runtime/Utils/GamePad.cs
+ create mode 100644 Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+ create mode 100644 Emuera/UI/Game/EmueraConsole.GamePad.cs
+
+diff --git a/Emuera/Runtime/Config/JSON/JSONConfigData.cs b/Emuera/Runtime/Config/JSON/JSONConfigData.cs
+index 9dae04b..40d6ac2 100644
+--- a/Emuera/Runtime/Config/JSON/JSONConfigData.cs
++++ b/Emuera/Runtime/Config/JSON/JSONConfigData.cs
+@@ -45,4 +45,36 @@ sealed class JSONConfigData
+ 	//キャラクタCSVの読み込みに _Rename.csv を適用するか
+ 	public bool UseRenameInCharaCSV { get; set; }
+ 	#endregion
++
++	#region 統合_ゲームパッド対応
++	public GamePadConfig GamePad { get; set; } = new();
++	#endregion
+ }
++
++#region 統合_ゲームパッド対応
++/// <summary>
++/// ゲームパッドの割り当て。値は XInput のボタンビットで、複数割り当ては OR で足す。
++/// 0x0001 上 / 0x0002 下 / 0x0004 左 / 0x0008 右 / 0x0010 START / 0x0020 BACK
++/// 0x0040 左スティック押込 / 0x0080 右スティック押込 / 0x0100 LB / 0x0200 RB
++/// 0x1000 A / 0x2000 B / 0x4000 X / 0x8000 Y
++/// 左スティックの傾きは十字キーと同じビットに合成される。
++/// </summary>
++sealed class GamePadConfig
++{
++	public bool Enabled { get; set; } = true;
++
++	//選択カーソルの移動
++	public int Up { get; set; } = 0x0001;
++	public int Down { get; set; } = 0x0002;
++	public int Left { get; set; } = 0x0004;
++	public int Right { get; set; } = 0x0008;
++
++	//決定（クリック相当）と、入力欄を消すキャンセル
++	public int Decide { get; set; } = 0x1000;
++	public int Cancel { get; set; } = 0x2000;
++
++	//履歴スクロール
++	public int ScrollUp { get; set; } = 0x0100;
++	public int ScrollDown { get; set; } = 0x0200;
++}
++#endregion
+diff --git a/Emuera/Runtime/Utils/GamePad.cs b/Emuera/Runtime/Utils/GamePad.cs
+new file mode 100644
+index 0000000..941d345
+--- /dev/null
++++ b/Emuera/Runtime/Utils/GamePad.cs
+@@ -0,0 +1,163 @@
++//統合_ゲームパッド対応: XInput を直接叩いてパッドの状態を読む。
++//XInput1_4.dll は Windows 8 以降に標準で入っているので追加依存は無い。
++using System;
++using System.Runtime.InteropServices;
++
++namespace MinorShift.Emuera.Runtime.Utils;
++
++/// <summary>押されたと判定された操作</summary>
++internal enum GamePadAction
++{
++	None,
++	Up,
++	Down,
++	Left,
++	Right,
++	Decide,
++	Cancel,
++	ScrollUp,
++	ScrollDown,
++}
++
++internal static class GamePad
++{
++	//XInput のボタンビット
++	public const int DPAD_UP = 0x0001;
++	public const int DPAD_DOWN = 0x0002;
++	public const int DPAD_LEFT = 0x0004;
++	public const int DPAD_RIGHT = 0x0008;
++	public const int START = 0x0010;
++	public const int BACK = 0x0020;
++	public const int LEFT_THUMB = 0x0040;
++	public const int RIGHT_THUMB = 0x0080;
++	public const int LEFT_SHOULDER = 0x0100;
++	public const int RIGHT_SHOULDER = 0x0200;
++	public const int A = 0x1000;
++	public const int B = 0x2000;
++	public const int X = 0x4000;
++	public const int Y = 0x8000;
++
++	//左スティックを方向キー扱いするしきい値。XInput の推奨デッドゾーンより大きめにして誤爆を防ぐ
++	private const short ThumbThreshold = 16000;
++
++	[StructLayout(LayoutKind.Sequential)]
++	private struct XInputGamepad
++	{
++		public ushort wButtons;
++		public byte bLeftTrigger;
++		public byte bRightTrigger;
++		public short sThumbLX;
++		public short sThumbLY;
++		public short sThumbRX;
++		public short sThumbRY;
++	}
++
++	[StructLayout(LayoutKind.Sequential)]
++	private struct XInputState
++	{
++		public uint dwPacketNumber;
++		public XInputGamepad Gamepad;
++	}
++
++	[DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
++	private static extern uint XInputGetState14(uint dwUserIndex, ref XInputState pState);
++
++	[DllImport("xinput9_1_0.dll", EntryPoint = "XInputGetState")]
++	private static extern uint XInputGetState91(uint dwUserIndex, ref XInputState pState);
++
++	private const uint ERROR_SUCCESS = 0;
++
++	//xinput1_4 が無い環境では 9_1_0 に落とす。どちらも無ければ以後あきらめる
++	private static int dllChoice = -1;
++
++	private static uint GetState(uint index, ref XInputState state)
++	{
++		if (dllChoice == 0)
++			return XInputGetState14(index, ref state);
++		if (dllChoice == 1)
++			return XInputGetState91(index, ref state);
++		if (dllChoice == 2)
++			return uint.MaxValue;
++
++		try
++		{
++			uint ret = XInputGetState14(index, ref state);
++			dllChoice = 0;
++			return ret;
++		}
++		catch (DllNotFoundException) { }
++		catch (EntryPointNotFoundException) { }
++		try
++		{
++			uint ret = XInputGetState91(index, ref state);
++			dllChoice = 1;
++			return ret;
++		}
++		catch (DllNotFoundException) { }
++		catch (EntryPointNotFoundException) { }
++
++		dllChoice = 2;
++		return uint.MaxValue;
++	}
++
++	//前回の押下状態。押しっぱなしを毎フレーム拾わないための立ち上がり検出用
++	private static int prevButtons;
++	//押しっぱなしのときのリピート開始/間隔（ミリ秒）
++	private const int RepeatDelay = 400;
++	private const int RepeatInterval = 80;
++	private static int repeatButton;
++	private static long repeatNextTick;
++
++	/// <summary>
++	/// 現在の入力を「押された瞬間」のビットとして返す。押しっぱなしの方向キーはリピートする。
++	/// 接続されていなければ 0。
++	/// </summary>
++	public static int PollPressedButtons(long nowMs)
++	{
++		XInputState state = default;
++		int buttons = 0;
++		//4台まで見て、最初に見つかったものを使う
++		for (uint i = 0; i < 4; i++)
++		{
++			if (GetState(i, ref state) != ERROR_SUCCESS)
++				continue;
++			buttons = state.Gamepad.wButtons;
++			//左スティックを方向キーに合成する
++			if (state.Gamepad.sThumbLY > ThumbThreshold) buttons |= DPAD_UP;
++			if (state.Gamepad.sThumbLY < -ThumbThreshold) buttons |= DPAD_DOWN;
++			if (state.Gamepad.sThumbLX < -ThumbThreshold) buttons |= DPAD_LEFT;
++			if (state.Gamepad.sThumbLX > ThumbThreshold) buttons |= DPAD_RIGHT;
++			break;
++		}
++
++		int pressed = buttons & ~prevButtons;
++		prevButtons = buttons;
++
++		//方向キーだけリピートさせる
++		const int repeatable = DPAD_UP | DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT;
++		int held = buttons & repeatable;
++		if (pressed != 0 && (pressed & repeatable) != 0)
++		{
++			repeatButton = pressed & repeatable;
++			repeatNextTick = nowMs + RepeatDelay;
++		}
++		else if (held != 0 && held == repeatButton && nowMs >= repeatNextTick)
++		{
++			pressed |= repeatButton;
++			repeatNextTick = nowMs + RepeatInterval;
++		}
++		else if (held == 0)
++		{
++			repeatButton = 0;
++		}
++
++		return pressed;
++	}
++
++	public static void Reset()
++	{
++		prevButtons = 0;
++		repeatButton = 0;
++		repeatNextTick = 0;
++	}
++}
+diff --git a/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+new file mode 100644
+index 0000000..0d5a1ad
+--- /dev/null
++++ b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+@@ -0,0 +1,111 @@
++//統合_ゲームパッド対応: パッドを一定間隔で読んで、選択カーソルの移動と決定に割り当てる。
++//決定はマウスクリックと同じ経路（PressEnterKey の inputsByMouse）に流すので、
++//ERB 側から見た挙動はボタンをクリックしたときと同じになる。
++using MinorShift.Emuera.Runtime.Config.JSON;
++using MinorShift.Emuera.Runtime.Utils;
++using System;
++using System.Diagnostics;
++using System.Windows.Forms;
++
++namespace MinorShift.Emuera.Forms
++{
++	internal sealed partial class MainWindow
++	{
++		private Timer gamePadTimer;
++		private readonly Stopwatch gamePadClock = new();
++
++		private void SetupGamePad()
++		{
++			if (!JSONConfig.Data.GamePad.Enabled)
++				return;
++			gamePadClock.Start();
++			gamePadTimer = new Timer { Interval = 16 };
++			gamePadTimer.Tick += GamePadTimer_Tick;
++			gamePadTimer.Start();
++		}
++
++		private void GamePadTimer_Tick(object sender, EventArgs e)
++		{
++			if (console == null || console.IsInProcess)
++				return;
++			//他のウィンドウを操作している間は反応させない
++			if (!ContainsFocus)
++			{
++				GamePad.Reset();
++				return;
++			}
++
++			int pressed = GamePad.PollPressedButtons(gamePadClock.ElapsedMilliseconds);
++			if (pressed == 0)
++				return;
++
++			GamePadConfig cfg = JSONConfig.Data.GamePad;
++
++			if ((pressed & cfg.ScrollUp) != 0) { ScrollLogByGamePad(-10); return; }
++			if ((pressed & cfg.ScrollDown) != 0) { ScrollLogByGamePad(10); return; }
++
++			if ((pressed & cfg.Cancel) != 0)
++			{
++				console.ClearSelectingButton();
++				richTextBox1.Clear();
++				return;
++			}
++
++			if ((pressed & cfg.Decide) != 0)
++			{
++				DecideByGamePad();
++				return;
++			}
++
++			//左右も前後移動に使う。era系の選択肢は縦横どちらにも並ぶため
++			if ((pressed & (cfg.Up | cfg.Left)) != 0) { console.MoveSelectingButton(-1); return; }
++			if ((pressed & (cfg.Down | cfg.Right)) != 0) { console.MoveSelectingButton(1); return; }
++		}
++
++		/// <summary>
++		/// 決定。マウス左クリックと同じ経路に流す。
++		/// 選択中ボタンがあればその入力値を、無ければ単なる改行待ちの解除として扱う。
++		/// </summary>
++		private void DecideByGamePad()
++		{
++			//履歴を見ている最中は最新に戻すだけ
++			if (vScrollBar.Value != vScrollBar.Maximum)
++			{
++				vScrollBar.Value = vScrollBar.Maximum;
++				console.RefreshStrings(true);
++				return;
++			}
++
++			string str = console.SelectedString;
++			if (console.IsWaitingEnterKey && str == null)
++			{
++				PressEnterKey(false, true);
++				return;
++			}
++			if (console.IsWaintingInputWithMouse && !console.IsError && str != null)
++			{
++				GlobalStatic.Process.InputInteger(1, 1);
++				GlobalStatic.Process.InputString(1, str);
++				console.PressEnterKey(false, str, true);
++				return;
++			}
++			if (str != null)
++			{
++				console.PressEnterKey(false, str, true);
++				return;
++			}
++			PressEnterKey(false, false);
++		}
++
++		private void ScrollLogByGamePad(int move)
++		{
++			if ((vScrollBar.Value == vScrollBar.Maximum && move > 0) || (vScrollBar.Value == vScrollBar.Minimum && move < 0))
++				return;
++			int value = vScrollBar.Value + move;
++			if (value >= vScrollBar.Maximum) vScrollBar.Value = vScrollBar.Maximum;
++			else if (value <= vScrollBar.Minimum) vScrollBar.Value = vScrollBar.Minimum;
++			else vScrollBar.Value = value;
++			console.RefreshStrings((vScrollBar.Value == vScrollBar.Maximum) || (vScrollBar.Value == vScrollBar.Minimum));
++		}
++	}
++}
+diff --git a/Emuera/UI/Framework/Forms/MainWindow.cs b/Emuera/UI/Framework/Forms/MainWindow.cs
+index 2d6438d..5dba605 100644
+--- a/Emuera/UI/Framework/Forms/MainWindow.cs
++++ b/Emuera/UI/Framework/Forms/MainWindow.cs
+@@ -96,6 +96,10 @@ namespace MinorShift.Emuera.Forms
+ 			textBoxState = TextBoxState.Unchanged;
+ 			vScrollBar.ValueChanged += new EventHandler(textBoxHandleScrollValueChanged);
+ 			#endregion
++
++			#region 統合_ゲームパッド対応
++			SetupGamePad();
++			#endregion
+ 		}
+ 		private ToolStripMenuItem[] macroMenuItems = new ToolStripMenuItem[KeyMacro.MaxFkey];
+ 		//private System.Diagnostics.FileVersionInfo emueraVer = System.Diagnostics.FileVersionInfo.GetVersionInfo(System.Reflection.Assembly.GetExecutingAssembly().Location);
+diff --git a/Emuera/UI/Game/EmueraConsole.GamePad.cs b/Emuera/UI/Game/EmueraConsole.GamePad.cs
+new file mode 100644
+index 0000000..25b6aa6
+--- /dev/null
++++ b/Emuera/UI/Game/EmueraConsole.GamePad.cs
+@@ -0,0 +1,78 @@
++//統合_ゲームパッド対応: パッドで画面上のボタンを選ぶための処理。
++//マウスのホバー選択と同じ selectingButton を動かすので、決定はクリックと同じ経路に乗る。
++using MinorShift.Emuera.Runtime;
++using MinorShift.Emuera.UI.Game;
++using System.Collections.Generic;
++
++namespace MinorShift.Emuera.GameView;
++
++internal sealed partial class EmueraConsole
++{
++	/// <summary>
++	/// 今選べるボタンを画面の並び順（上の行から、行内は左から）で集める。
++	/// マウスの当たり判定と同じ条件を使う。
++	/// </summary>
++	private List<ConsoleButtonString> CollectSelectableButtons()
++	{
++		List<ConsoleButtonString> ret = [];
++		if (state != ConsoleState.WaitInput || !inputReq.NeedValue)
++			return ret;
++
++		bool needInteger = inputReq.InputType == InputType.IntValue || inputReq.InputType == InputType.IntButton;
++		foreach (ConsoleDisplayLine line in displayLineList)
++		{
++			foreach (ConsoleButtonString button in line.Buttons)
++			{
++				if (button == null || !button.IsButton)
++					continue;
++				if (button.Generation != lastButtonGeneration)
++					continue;
++				if (needInteger && !button.IsInteger)
++					continue;
++				ret.Add(button);
++			}
++		}
++		return ret;
++	}
++
++	/// <summary>
++	/// 選択カーソルを delta 個ずらす。未選択なら端から入る。
++	/// 動かせたら true。
++	/// </summary>
++	public bool MoveSelectingButton(int delta)
++	{
++		List<ConsoleButtonString> buttons = CollectSelectableButtons();
++		if (buttons.Count == 0)
++			return false;
++
++		int index = selectingButton != null ? buttons.IndexOf(selectingButton) : -1;
++		if (index < 0)
++			index = delta >= 0 ? 0 : buttons.Count - 1;
++		else
++		{
++			index += delta;
++			//端で止めず反対側へ回す。選択肢が少ない画面で行ったり来たりせずに済む
++			if (index < 0) index = buttons.Count - 1;
++			else if (index >= buttons.Count) index = 0;
++		}
++
++		selectingButton = buttons[index];
++		//選んだボタンが履歴に隠れていたら最新まで戻す
++		if (window.ScrollBar.Value != window.ScrollBar.Maximum)
++			window.ScrollBar.Value = window.ScrollBar.Maximum;
++		RefreshStrings(true);
++		return true;
++	}
++
++	/// <summary>選択カーソルを外す</summary>
++	public void ClearSelectingButton()
++	{
++		if (selectingButton == null)
++			return;
++		selectingButton = null;
++		RefreshStrings(true);
++	}
++
++	/// <summary>パッドで操作できる状態か</summary>
++	public bool CanUseGamePadSelection => state == ConsoleState.WaitInput && inputReq != null && inputReq.NeedValue;
++}
+-- 
+2.51.0.windows.1
+

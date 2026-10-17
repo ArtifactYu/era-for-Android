@@ -1,0 +1,88 @@
+From 558c2c3d6d0362e63994e4d755d70ef900afdefd Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 12:04:43 +0900
+Subject: [PATCH 04/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20setting.json?=
+ =?UTF-8?q?=E3=81=AE.netEmuera=E7=94=B1=E6=9D=A5=E3=82=AD=E3=83=BC?=
+ =?UTF-8?q?=E3=82=92=E8=BF=BD=E5=8A=A0=E3=81=97UseRenameInCharaCSV?=
+ =?UTF-8?q?=E3=82=92=E5=AE=9F=E8=A3=85?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ Emuera/Runtime/Config/JSON/JSONConfigData.cs | 33 ++++++++++++++++++++
+ Emuera/Runtime/Script/Data/ConstantData.cs   |  4 ++-
+ 2 files changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/Emuera/Runtime/Config/JSON/JSONConfigData.cs b/Emuera/Runtime/Config/JSON/JSONConfigData.cs
+index 4949dd7..9dae04b 100644
+--- a/Emuera/Runtime/Config/JSON/JSONConfigData.cs
++++ b/Emuera/Runtime/Config/JSON/JSONConfigData.cs
+@@ -1,6 +1,24 @@
+ ﻿using System.Text.Json.Serialization;
+ 
+ namespace MinorShift.Emuera.Runtime.Config.JSON;
++
++#region 統合_netEmuera
++//.netEmuera が setting.json に書く列挙値。値の並び順が数値と対応するので変更不可
++enum Resampler
++{
++	NearnestNeighber,
++	Linear,
++	Cubic,
++}
++
++enum FontAntialias
++{
++	None,
++	Normal,
++	Full,
++}
++#endregion
++
+ //JSONの定義
+ sealed class JSONConfigData
+ {
+@@ -12,4 +30,19 @@ sealed class JSONConfigData
+ 	public bool UseNewRandom { get; set; }
+ 
+ 	public bool UseScopedVariableInstruction { get; set; }
++
++	#region 統合_netEmuera
++	//.netEmuera 側の設定を素通しするためのキー。
++	//これが無いと JSONConfig.Save() で相手側の設定を消してしまう。
++	//ImageSamplingOption / FontAntialias は SkiaSharp 前提の描画品質指定なので
++	//EM+EE の描画では解釈しないが、値だけは保持する。
++	public Resampler ImageSamplingOption { get; set; } = Resampler.Linear;
++
++	public bool CheckUTF8withBOM { get; set; }
++
++	public FontAntialias FontAntialias { get; set; } = FontAntialias.Normal;
++
++	//キャラクタCSVの読み込みに _Rename.csv を適用するか
++	public bool UseRenameInCharaCSV { get; set; }
++	#endregion
+ }
+diff --git a/Emuera/Runtime/Script/Data/ConstantData.cs b/Emuera/Runtime/Script/Data/ConstantData.cs
+index 4aab601..4293155 100644
+--- a/Emuera/Runtime/Script/Data/ConstantData.cs
++++ b/Emuera/Runtime/Script/Data/ConstantData.cs
+@@ -1,4 +1,5 @@
+ ﻿using MinorShift.Emuera.GameView;
++using MinorShift.Emuera.Runtime.Config.JSON;
+ using MinorShift.Emuera.Runtime.Script.Parser;
+ using MinorShift.Emuera.Runtime.Script.Statements.Variable;
+ using MinorShift.Emuera.Runtime.Utils;
+@@ -1411,7 +1412,8 @@ internal sealed class ConstantData
+ 	private void loadCharacterDataFile(string csvPath, string csvName, bool disp)
+ 	{
+ 		CharacterTemplate tmpl = null;
+-		using var eReader = new EraStreamReader(false);
++		//統合_netEmuera: キャラクタCSVへの_Rename.csv適用可否
++		using var eReader = new EraStreamReader(JSONConfig.Data.UseRenameInCharaCSV);
+ 		if (!eReader.OpenOnCache(csvPath, csvName))
+ 		{
+ 			output.PrintError(string.Format(trerror.FailedOpenFile.Text, eReader.Filename));
+-- 
+2.51.0.windows.1
+

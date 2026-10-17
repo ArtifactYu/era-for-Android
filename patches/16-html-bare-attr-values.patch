@@ -1,0 +1,111 @@
+From 436a22c549f67871e51e2bdc3507861403459665 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 12:19:23 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E5=BC=95=E7=94=A8?=
+ =?UTF-8?q?=E7=AC=A6=E3=81=AE=E7=84=A1=E3=81=84=E5=B1=9E=E6=80=A7=E5=80=A4?=
+ =?UTF-8?q?=E3=82=92=E8=A8=B1=E5=AE=B9=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+.netEmuera は HTML パーサ(AngleSharp)なので、引用符の無い属性値を
+HTML の規則どおり「空白か > まで」を値として読む。EM+EE の字句解析は
+属性値を文字列リテラルとしか見ないため、<div xpos = 850 ypos = 0> の
+850 が整数リテラルになった時点でタグ解析エラーになっていた。
+
+ShinEraTenseiP の FORMATION.ERB:549 が
+@"<div xpos = {L_XPOS} ypos = {L_YPOS}>" で、依頼先の隊列表示が
+これで停止する。同じゲーム内に ypos = -100 / padding=50 /
+background_color = #RRGGBB もあり、トークン列がばらばらになるので、
+字句解析に渡す前の文字列段階で引用符を補う形にした。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/HtmlManager.cs | 64 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 64 insertions(+)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index c3d95aa..6447edf 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -885,6 +885,68 @@ internal static class HtmlManager
+ 		return b.ToString();
+ 	}
+ 
++	#region 統合_netEmuera
++	/// <summary>
++	/// 開始タグの属性のうち、引用符で囲まれていない値を引用符で囲む。
++	/// .netEmuera は HTML パーサ(AngleSharp)なので &lt;div xpos=850&gt; のような書き方を
++	/// HTMLの規則どおり「空白か&gt;まで」を値として読むが、EM+EEの字句解析は属性値を
++	/// 文字列リテラルとしか見ないため、解析に渡す前にここで補う。
++	/// stはタグ名の直後を指していること。補うものが無ければstには触れない。
++	/// </summary>
++	private static void quoteBareAttributeValues(CharStream st)
++	{
++		string src = st.RowString;
++		int start = st.CurrentPosition;
++		int pos = start;
++		//書き換えが要ると分かった時点で作る
++		StringBuilder buffer = null;
++		while (pos < src.Length)
++		{
++			char cur = src[pos];
++			if (cur == '>' || cur == '\n')
++				break;
++			if (cur == '\'' || cur == '\"')
++			{
++				//引用符付きの値はそのまま。閉じていないものは字句解析側のエラーに任せる
++				int close = src.IndexOf(cur, pos + 1);
++				if (close < 0)
++					return;
++				buffer?.Append(src, pos, close - pos + 1);
++				pos = close + 1;
++				continue;
++			}
++			if (cur != '=')
++			{
++				buffer?.Append(cur);
++				pos++;
++				continue;
++			}
++			int valueStart = pos + 1;
++			while (valueStart < src.Length && (src[valueStart] == ' ' || src[valueStart] == '\t'))
++				valueStart++;
++			if (valueStart >= src.Length || src[valueStart] == '\'' || src[valueStart] == '\"' || src[valueStart] == '>' || src[valueStart] == '\n')
++			{
++				buffer?.Append(src, pos, valueStart - pos);
++				pos = valueStart;
++				continue;
++			}
++			int valueEnd = valueStart;
++			while (valueEnd < src.Length && src[valueEnd] != ' ' && src[valueEnd] != '\t' && src[valueEnd] != '>' && src[valueEnd] != '\n')
++				valueEnd++;
++			buffer ??= new StringBuilder(src, start, pos - start, src.Length - start + 2);
++			buffer.Append(src, pos, valueStart - pos);
++			//値の中に'があるなら"で囲む
++			char quote = src.IndexOf('\'', valueStart, valueEnd - valueStart) < 0 ? '\'' : '\"';
++			buffer.Append(quote).Append(src, valueStart, valueEnd - valueStart).Append(quote);
++			pos = valueEnd;
++		}
++		if (buffer == null)
++			return;
++		//Replaceは読み位置を書き換えの先頭に戻すので、この後の字句解析は従来どおり進む
++		st.Replace(start, pos - start, buffer.ToString());
++	}
++	#endregion
++
+ 	private static AConsoleDisplayNode tagAnalyze(HtmlAnalzeState state, CharStream st)
+ 	{
+ 		bool endTag = st.Current == '/';
+@@ -967,6 +1029,8 @@ internal static class HtmlManager
+ 			LexicalAnalyzer.UseMacro = false;//一時的にマクロ展開をやめる
+ 			tag = LexicalAnalyzer.ReadSingleIdentifier(st);
+ 			LexicalAnalyzer.SkipWhiteSpace(st);
++			//統合_netEmuera: 引用符の無い属性値を囲んでから字句解析に渡す
++			quoteBareAttributeValues(st);
+ 			if (st.Current != '>')
+ 				wc = LexicalAnalyzer.Analyse(st, LexEndWith.GreaterThan, LexAnalyzeFlag.AllowAssignment | LexAnalyzeFlag.AllowSingleQuotationStr);
+ 		}
+-- 
+2.51.0.windows.1
+

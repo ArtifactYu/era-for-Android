@@ -1,0 +1,83 @@
+From 45cdf006feddbe448a2e683aa71977b631f3f586 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 17:09:18 +0900
+Subject: [PATCH 13/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E7=94=9F=E5=85=A5?=
+ =?UTF-8?q?=E5=8A=9B=E5=BE=85=E3=81=A1=E3=81=A7=E3=81=AF=E3=83=91=E3=83=83?=
+ =?UTF-8?q?=E3=83=89=E3=81=AE=E6=B1=BA=E5=AE=9A=E3=82=92=E3=82=AF=E3=83=AA?=
+ =?UTF-8?q?=E3=83=83=E3=82=AF=E3=81=A8=E3=81=97=E3=81=A6=E9=80=81=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../UI/Framework/Forms/MainWindow.GamePad.cs  | 29 ++++++++++++++-----
+ 1 file changed, 22 insertions(+), 7 deletions(-)
+
+diff --git a/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+index 7306f39..b2c577d 100644
+--- a/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
++++ b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+@@ -6,6 +6,7 @@ using MinorShift.Emuera.Runtime.Config.JSON;
+ using MinorShift.Emuera.Runtime.Utils;
+ using System;
+ using System.Diagnostics;
++using System.Drawing;
+ using System.Windows.Forms;
+ 
+ namespace MinorShift.Emuera.Forms
+@@ -37,7 +38,7 @@ namespace MinorShift.Emuera.Forms
+ 			}
+ 
+ 			int pressed = GamePad.PollPressedButtons(gamePadClock.ElapsedMilliseconds);
+-			if (pressed == 0)
++		if (pressed == 0)
+ 				return;
+ 
+ 			GamePadConfig cfg = JSONConfig.Data.GamePad;
+@@ -45,11 +46,14 @@ namespace MinorShift.Emuera.Forms
+ 			if ((pressed & cfg.ScrollUp) != 0) { ScrollLogByGamePad(-10); return; }
+ 			if ((pressed & cfg.ScrollDown) != 0) { ScrollLogByGamePad(10); return; }
+ 
+-			//INPUTMOUSEKEY などで生のキー入力を待っている画面では、
+-			//選択カーソルではなくキーボードと同じようにキーコードを渡す。
+-			//そうしないとその画面でパッドが効かなくなる
++			//INPUTMOUSEKEY などで生の入力を待っている画面では、選択カーソルではなく
++			//キーボード・マウスと同じ経路に流す。
++			//決定/キャンセルはクリックとして送る（キーだけでは進まないゲームがあるため。
++			//ゲーム側はクリック位置やボタン値を見ることがあるので、カーソル位置をそのまま使う）。
+ 			if (console.IsWaitingPrimitive)
+ 			{
++				if ((pressed & cfg.Decide) != 0) { ClickByGamePad(MouseButtons.Left); return; }
++				if ((pressed & cfg.Cancel) != 0) { ClickByGamePad(MouseButtons.Right); return; }
+ 				Keys key = PrimitiveKeyFromGamePad(pressed, cfg);
+ 				if (key != Keys.None)
+ 					console.PressPrimitiveKey(key, key, Keys.None);
+@@ -76,11 +80,22 @@ namespace MinorShift.Emuera.Forms
+ 			if ((pressed & cfg.Down) != 0) { console.MoveSelectingButton(ButtonMoveDirection.Down); return; }
+ 		}
+ 
+-		/// <summary>生キー入力待ちの画面向けに、パッドの入力をキーコードへ読み替える</summary>
++		/// <summary>
++		/// 生入力待ちの画面で、マウスをクリックしたのと同じ入力を送る。
++		/// 位置はカーソルの現在地。画面外にいるときは画面中央にしておく
++		/// （その場でクリックしたのと同じ挙動にするため）。
++		/// </summary>
++		private void ClickByGamePad(MouseButtons button)
++		{
++			Point point = mainPicBox.PointToClient(Control.MousePosition);
++			if (!mainPicBox.ClientRectangle.Contains(point))
++				point = new Point(mainPicBox.Width / 2, mainPicBox.Height / 2);
++			console.MouseDown(point, button);
++		}
++
++		/// <summary>生入力待ちの画面向けに、十字キーをキーコードへ読み替える</summary>
+ 		private static Keys PrimitiveKeyFromGamePad(int pressed, GamePadConfig cfg)
+ 		{
+-			if ((pressed & cfg.Decide) != 0) return Keys.Return;
+-			if ((pressed & cfg.Cancel) != 0) return Keys.Escape;
+ 			if ((pressed & cfg.Left) != 0) return Keys.Left;
+ 			if ((pressed & cfg.Right) != 0) return Keys.Right;
+ 			if ((pressed & cfg.Up) != 0) return Keys.Up;
+-- 
+2.51.0.windows.1
+

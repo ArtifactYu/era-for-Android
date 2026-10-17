@@ -1,0 +1,39 @@
+From d7c0ba0b3963e2a9ade9b404742227bcf420b046 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 21:36:38 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20div=20=E3=81=AE=E7=9F=A5?=
+ =?UTF-8?q?=E3=82=89=E3=81=AA=E3=81=84=E5=B1=9E=E6=80=A7=E5=90=8D=E3=82=92?=
+ =?UTF-8?q?=E8=AA=AD=E3=81=BF=E9=A3=9B=E3=81=B0=E3=81=99?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+.netEmuera は HTML パーサ(AngleSharp)なので解釈しない属性名を素通しする。
+そのため綴りの間違いがゲーム側に残ったまま配布されていることがある。
+ShinEraTenseiP の FORMATION.ERB:499 が <div xpos='0' yos='0'> になっており、
+依頼を受けた先の隊列表示でエラー停止していた。
+---
+ Emuera/UI/Game/HtmlManager.cs | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index d01358d..c3d95aa 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -1234,7 +1234,12 @@ internal static class HtmlManager
+ 							else throw new CodeEE(string.Format(trerror.CanNotInterpretAttribute.Text, attrValue));
+ 						}
+ 						else if (!TryParseStyledBoxModel(ref box, tag, word.Code, attrValue))
+-							throw new CodeEE(string.Format(trerror.CanNotInterpretAttributeName.Text, tag, word.Code));
++						{
++							//統合_netEmuera: 知らない属性は読み飛ばす。
++							//.netEmuera は HTML パーサ(AngleSharp)なので、解釈しない属性名は素通しする。
++							//そのため綴りの間違いがゲーム側に残ったまま配布されている
++							//（ShinEraTenseiP の FORMATION.ERB:499 に <div xpos='0' yos='0'>）
++						}
+ 					}
+ 					//統合_netEmuera: width/height 省略時は中身に合わせる（null のまま渡す）
+ 					state.PendingDivTag = new HtmlDivTag(x, y, width, height, depth, color, box, displayMode);
+-- 
+2.51.0.windows.1
+

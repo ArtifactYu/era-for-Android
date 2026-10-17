@@ -1,0 +1,238 @@
+From 124e560cd5b1367ad7ab2580e22d64494e363665 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Tue, 11 Aug 2026 16:35:36 +0900
+Subject: [PATCH 11/15] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E3=83=91=E3=83=83?=
+ =?UTF-8?q?=E3=83=89=E3=81=AE=E4=B8=8A=E4=B8=8B=E5=B7=A6=E5=8F=B3=E3=82=92?=
+ =?UTF-8?q?=E7=94=BB=E9=9D=A2=E4=B8=8A=E3=81=AE=E4=BD=8D=E7=BD=AE=E3=81=A7?=
+ =?UTF-8?q?=E5=8B=95=E3=81=8B=E3=81=97=E3=80=81div=E5=86=85=E3=81=AE?=
+ =?UTF-8?q?=E3=83=9C=E3=82=BF=E3=83=B3=E3=82=82=E9=81=B8=E3=81=B9=E3=82=8B?=
+ =?UTF-8?q?=E3=82=88=E3=81=86=E3=81=AB=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../UI/Framework/Forms/MainWindow.GamePad.cs  |  11 +-
+ Emuera/UI/Game/EmueraConsole.GamePad.cs       | 138 +++++++++++++++---
+ 2 files changed, 124 insertions(+), 25 deletions(-)
+
+diff --git a/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+index 0d5a1ad..883d57e 100644
+--- a/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
++++ b/Emuera/UI/Framework/Forms/MainWindow.GamePad.cs
+@@ -1,6 +1,7 @@
+-//統合_ゲームパッド対応: パッドを一定間隔で読んで、選択カーソルの移動と決定に割り当てる。
++﻿//統合_ゲームパッド対応: パッドを一定間隔で読んで、選択カーソルの移動と決定に割り当てる。
+ //決定はマウスクリックと同じ経路（PressEnterKey の inputsByMouse）に流すので、
+ //ERB 側から見た挙動はボタンをクリックしたときと同じになる。
++using MinorShift.Emuera.GameView;
+ using MinorShift.Emuera.Runtime.Config.JSON;
+ using MinorShift.Emuera.Runtime.Utils;
+ using System;
+@@ -57,9 +58,11 @@ namespace MinorShift.Emuera.Forms
+ 				return;
+ 			}
+ 
+-			//左右も前後移動に使う。era系の選択肢は縦横どちらにも並ぶため
+-			if ((pressed & (cfg.Up | cfg.Left)) != 0) { console.MoveSelectingButton(-1); return; }
+-			if ((pressed & (cfg.Down | cfg.Right)) != 0) { console.MoveSelectingButton(1); return; }
++			//左右は行内の隣へ、上下は上/下の行の近い位置へ
++			if ((pressed & cfg.Left) != 0) { console.MoveSelectingButton(ButtonMoveDirection.Left); return; }
++			if ((pressed & cfg.Right) != 0) { console.MoveSelectingButton(ButtonMoveDirection.Right); return; }
++			if ((pressed & cfg.Up) != 0) { console.MoveSelectingButton(ButtonMoveDirection.Up); return; }
++			if ((pressed & cfg.Down) != 0) { console.MoveSelectingButton(ButtonMoveDirection.Down); return; }
+ 		}
+ 
+ 		/// <summary>
+diff --git a/Emuera/UI/Game/EmueraConsole.GamePad.cs b/Emuera/UI/Game/EmueraConsole.GamePad.cs
+index 25b6aa6..eebb166 100644
+--- a/Emuera/UI/Game/EmueraConsole.GamePad.cs
++++ b/Emuera/UI/Game/EmueraConsole.GamePad.cs
+@@ -1,67 +1,163 @@
+ //統合_ゲームパッド対応: パッドで画面上のボタンを選ぶための処理。
+ //マウスのホバー選択と同じ selectingButton を動かすので、決定はクリックと同じ経路に乗る。
+ using MinorShift.Emuera.Runtime;
++using MinorShift.Emuera.Runtime.Config;
++using MinorShift.Emuera.Runtime.Utils.EvilMask;
+ using MinorShift.Emuera.UI.Game;
+ using System.Collections.Generic;
+ 
+ namespace MinorShift.Emuera.GameView;
+ 
++#region 統合_ゲームパッド対応
++internal enum ButtonMoveDirection
++{
++	Left,
++	Right,
++	Up,
++	Down,
++}
++#endregion
++
+ internal sealed partial class EmueraConsole
+ {
++	/// <summary>選べるボタンと、その画面上のおおよその位置</summary>
++	private readonly struct SelectableButton(ConsoleButtonString button, int x, int y)
++	{
++		public readonly ConsoleButtonString Button = button;
++		/// <summary>ボタンの中心X。左右移動と、上下移動で「近い列」を選ぶのに使う</summary>
++		public readonly int X = x;
++		/// <summary>行のY。同じ値なら同じ行とみなす</summary>
++		public readonly int Y = y;
++	}
++
+ 	/// <summary>
+ 	/// 今選べるボタンを画面の並び順（上の行から、行内は左から）で集める。
+-	/// マウスの当たり判定と同じ条件を使う。
++	/// 選べる条件はマウスの当たり判定と同じ。
++	/// div の中のボタンも対象にする（マウスは TestChildHitbox で拾えるため）。
+ 	/// </summary>
+-	private List<ConsoleButtonString> CollectSelectableButtons()
++	private List<SelectableButton> CollectSelectableButtons()
+ 	{
+-		List<ConsoleButtonString> ret = [];
++		List<SelectableButton> ret = [];
+ 		if (state != ConsoleState.WaitInput || !inputReq.NeedValue)
+ 			return ret;
+ 
+ 		bool needInteger = inputReq.InputType == InputType.IntValue || inputReq.InputType == InputType.IntButton;
++		int y = 0;
+ 		foreach (ConsoleDisplayLine line in displayLineList)
++		{
++			collectFromLine(line, y, needInteger, ret);
++			y += Config.LineHeight;
++		}
++		//行をまたいだ div があるので、最後に画面の並び順へ整える
++		ret.Sort((a, b) => a.Y != b.Y ? a.Y - b.Y : a.X - b.X);
++		return ret;
++
++		void collectFromLine(ConsoleDisplayLine line, int lineY, bool needInt, List<SelectableButton> list)
+ 		{
+ 			foreach (ConsoleButtonString button in line.Buttons)
+ 			{
+-				if (button == null || !button.IsButton)
+-					continue;
+-				if (button.Generation != lastButtonGeneration)
++				if (button == null)
+ 					continue;
+-				if (needInteger && !button.IsInteger)
++				if (button.IsButton && button.Generation == lastButtonGeneration && (!needInt || button.IsInteger))
++					list.Add(new SelectableButton(button, button.PointX + button.Width / 2, lineY));
++				if (button.StrArray == null)
+ 					continue;
+-				ret.Add(button);
++				//div の中身は別の行の並びを持っている
++				foreach (AConsoleDisplayNode part in button.StrArray)
++				{
++					if (part is not ConsoleDivPart div)
++						continue;
++					int childY = lineY + div.Top;
++					foreach (ConsoleDisplayLine child in div.Children)
++					{
++						collectFromLine(child, childY, needInt, list);
++						childY += Config.LineHeight;
++					}
++				}
+ 			}
+ 		}
+-		return ret;
+ 	}
+ 
+ 	/// <summary>
+-	/// 選択カーソルを delta 個ずらす。未選択なら端から入る。
+-	/// 動かせたら true。
++	/// 選択カーソルを動かす。動かせたら true。
++	/// 左右は画面の並び順で1つ隣へ（行末まで行けば次の行へ）。
++	/// 上下は「一番近い上/下の行」の中から、今の位置に横が一番近いボタンへ。
+ 	/// </summary>
+-	public bool MoveSelectingButton(int delta)
++	public bool MoveSelectingButton(ButtonMoveDirection dir)
+ 	{
+-		List<ConsoleButtonString> buttons = CollectSelectableButtons();
++		List<SelectableButton> buttons = CollectSelectableButtons();
+ 		if (buttons.Count == 0)
+ 			return false;
+ 
+-		int index = selectingButton != null ? buttons.IndexOf(selectingButton) : -1;
++		int index = -1;
++		if (selectingButton != null)
++			index = buttons.FindIndex(b => b.Button == selectingButton);
++
++		int next;
+ 		if (index < 0)
+-			index = delta >= 0 ? 0 : buttons.Count - 1;
+-		else
++			//未選択なら端から入る
++			next = dir is ButtonMoveDirection.Right or ButtonMoveDirection.Down ? 0 : buttons.Count - 1;
++		else if (dir is ButtonMoveDirection.Left or ButtonMoveDirection.Right)
+ 		{
+-			index += delta;
+-			//端で止めず反対側へ回す。選択肢が少ない画面で行ったり来たりせずに済む
+-			if (index < 0) index = buttons.Count - 1;
+-			else if (index >= buttons.Count) index = 0;
++			next = index + (dir == ButtonMoveDirection.Right ? 1 : -1);
++			//端で止めず反対側へ回す
++			if (next < 0) next = buttons.Count - 1;
++			else if (next >= buttons.Count) next = 0;
+ 		}
++		else
++			next = findVertical(buttons, index, dir == ButtonMoveDirection.Down);
+ 
+-		selectingButton = buttons[index];
++		selectingButton = buttons[next].Button;
+ 		//選んだボタンが履歴に隠れていたら最新まで戻す
+ 		if (window.ScrollBar.Value != window.ScrollBar.Maximum)
+ 			window.ScrollBar.Value = window.ScrollBar.Maximum;
+ 		RefreshStrings(true);
+ 		return true;
++
++		static int findVertical(List<SelectableButton> list, int from, bool down)
++		{
++			SelectableButton cur = list[from];
++
++			//まず移動先の行（今の行から一番近い上/下の行）を決める
++			int targetY = 0;
++			bool found = false;
++			foreach (SelectableButton b in list)
++			{
++				if (down ? b.Y <= cur.Y : b.Y >= cur.Y)
++					continue;
++				if (!found || (down ? b.Y < targetY : b.Y > targetY))
++				{
++					targetY = b.Y;
++					found = true;
++				}
++			}
++			//上下の端まで来たら反対側の端の行へ回す
++			if (!found)
++			{
++				targetY = cur.Y;
++				foreach (SelectableButton b in list)
++					if (down ? b.Y < targetY : b.Y > targetY)
++						targetY = b.Y;
++				if (targetY == cur.Y)
++					return from;
++			}
++
++			//その行の中で横位置が一番近いものを選ぶ
++			int best = from;
++			int bestDistance = int.MaxValue;
++			for (int i = 0; i < list.Count; i++)
++			{
++				if (list[i].Y != targetY)
++					continue;
++				int distance = System.Math.Abs(list[i].X - cur.X);
++				if (distance < bestDistance)
++				{
++					bestDistance = distance;
++					best = i;
++				}
++			}
++			return best;
++		}
+ 	}
+ 
+ 	/// <summary>選択カーソルを外す</summary>
+-- 
+2.51.0.windows.1
+

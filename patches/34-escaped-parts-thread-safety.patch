@@ -1,0 +1,223 @@
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Subject: [PATCH] ConsoleEscapedParts を並行アクセスに耐えるようにする
+
+erablue_resort の 汎用関数/ANIMATION.ERB:300 (`HTML_PRINT "<br>"`) で落ちていた。
+
+    汎用関数/ANIMATION.ERBの300行目で予期しないエラーが発生しました
+    System.InvalidCastException: Specified cast is not valid.
+       at ConsoleEscapedParts.<>c__DisplayClass21_0.<RemoveAt>b__0(DataRow r)
+       at System.Linq.Enumerable.IEnumerableWhereIterator`1[[System.Data.DataRow]].MoveNext()
+       at ConsoleEscapedParts.RemoveAt(Int32 line)
+       at EmueraConsole.addDisplayLine(ConsoleDisplayLine line, Boolean force_LEFT)
+       at EmueraConsole.PrintHtml(String str, Boolean toPrintBuffer)
+
+落ちるのはラムダ `r => (int)r[ROW_LINE] == line` のキャスト。
+アニメーションが <br> を吐き続けて MaxLog を超え、addDisplayLine が
+最古の行を捨てる `ConsoleEscapedParts.RemoveAt(displayLineList[0].LineNo)`
+を通ったところで踏む。
+
+dt (DataTable) と parts (Dictionary) はどちらも static で、
+
+- 書き込み Add / Remove / RemoveAt / Clear … PRINT 処理から
+- 読み出し GetPartsInRange … 描画から
+
+と別スレッドになりうる経路で触られる。DataTable はスレッドセーフではなく、
+行の追加と列挙が並行すると内部のレコード管理が崩れて、int 列のはずの値が
+DBNull や別の型として読める。そこへ直キャストを当てて落ちていた。
+
+2 つ直す。
+
+1. `sync` を足して dt と parts を触る区間を全部くくる (根本)
+2. 行の値は `is int` で確かめてから使う (保険)。型が合わない行はもう
+   使えないので RemoveWhere でまとめて捨てる。GetPartsInRange 側も
+   parts に無い行 (Add が途中で落ちた残骸) は飛ばす
+
+`Add` の `parts.Add(id, part)` も `parts[id] = part` にした。id は
+`Utils.TimePoint()` なので同じ刻みで 2 回呼ばれると衝突し、ArgumentException で
+「dt には行があるが parts には無い」状態を作ってしまうため。
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleEscapedParts.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleEscapedParts.cs
+index 6419cd8..6e64c16 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleEscapedParts.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleEscapedParts.cs
+@@ -1,4 +1,5 @@
+ ﻿using MinorShift.Emuera.UI.Game;
++using System;
+ using System.Collections.Generic;
+ using System.Data;
+ using System.Linq;
+@@ -10,6 +11,16 @@ internal sealed class ConsoleEscapedParts
+ 	const int ROW_LINE = 0, ROW_DEPTH = 1, ROW_TOP = 2, ROW_BOTTOM = 3, ROW_ID = 4, ROW_DIVTYPE = 5;
+ 	static readonly DataTable dt = new(); // divの情報を保存する場所
+ 	static readonly Dictionary<long, AConsoleDisplayNode> parts = []; //　実際にdivデータを保存する場所
++
++	/// <summary>
++	/// dt と parts を触る間の排他。
++	///
++	/// 書き込み (Add / Remove / RemoveAt / Clear) は PRINT 処理から、
++	/// 読み出し (GetPartsInRange) は描画から呼ばれる。両者は別スレッドになりうるが、
++	/// DataTable も Dictionary もスレッドセーフではない。並行に触ると行の値が壊れ、
++	/// (int)r[ROW_LINE] のようなキャストが InvalidCastException で落ちる。
++	/// </summary>
++	static readonly object sync = new();
+ 	/// <summary>
+ 	/// 最近GetPartsInRangeを行ったか
+ 	/// </summary>
+@@ -28,7 +39,8 @@ internal sealed class ConsoleEscapedParts
+ 	/// </summary>
+ 	public static bool TestedInRange(int top, int bottom, int gen)
+ 	{
+-		return getOnce && top == lastTop && bottom == lastBottom && gen == lastGeneration;
++		lock (sync)
++			return getOnce && top == lastTop && bottom == lastBottom && gen == lastGeneration;
+ 	}
+ 	static ConsoleEscapedParts()
+ 	{
+@@ -42,48 +54,68 @@ internal sealed class ConsoleEscapedParts
+ 	}
+ 	public static void Clear()
+ 	{
+-		getOnce = false;
+-		dt.Clear();
+-		parts.Clear();
+-		Changed = false;
++		lock (sync)
++		{
++			getOnce = false;
++			dt.Clear();
++			parts.Clear();
++			Changed = false;
++		}
+ 	}
+ 	public static void Add(AConsoleDisplayNode part, int line, int depth, int top, int bottom)
+ 	{
+-		var id = Utils.TimePoint();
+-		var row = dt.NewRow();
+-		row[ROW_LINE] = line;
+-		row[ROW_DEPTH] = depth;
+-		row[ROW_TOP] = top;
+-		row[ROW_BOTTOM] = bottom;
+-		row[ROW_ID] = id;
+-		if (part is ConsoleDivPart div)
+-			row[ROW_DIVTYPE] = (!div.IsRelative ? 2 : 0) | 1; // bit1 : divであるなら1　bit2 : divがdisplay:absoluteなら1
+-		else
+-			row[ROW_DIVTYPE] = 0;
+-		dt.Rows.Add(row);
+-		parts.Add(id, part);
+-		Changed = true;
++		lock (sync)
++		{
++			var id = Utils.TimePoint();
++			var row = dt.NewRow();
++			row[ROW_LINE] = line;
++			row[ROW_DEPTH] = depth;
++			row[ROW_TOP] = top;
++			row[ROW_BOTTOM] = bottom;
++			row[ROW_ID] = id;
++			if (part is ConsoleDivPart div)
++				row[ROW_DIVTYPE] = (!div.IsRelative ? 2 : 0) | 1; // bit1 : divであるなら1　bit2 : divがdisplay:absoluteなら1
++			else
++				row[ROW_DIVTYPE] = 0;
++			dt.Rows.Add(row);
++			// id は TimePoint なので、同じ刻みで 2 回呼ばれると衝突する。
++			// Add が投げると行だけ残って parts に無い状態になるので、上書きで揃える
++			parts[id] = part;
++			Changed = true;
++		}
+ 	}
+ 	/// <summary>
+ 	/// 所在行のlineNoがlineの行とその以降の行のdivデータを全部削除
+ 	/// </summary>
+ 	public static void Remove(int line)
+ 	{
+-		foreach (var row in dt.AsEnumerable().Where(r => (int)r[ROW_LINE] >= line).ToArray())
+-		{
+-			parts.Remove((long)row[ROW_ID]);
+-			dt.Rows.Remove(row);
+-			Changed = true;
+-		}
++		lock (sync)
++			RemoveWhere(l => l >= line);
+ 	}
+ 	/// <summary>
+ 	/// 所在行のlineNoがlineの行のdivデータを削除
+ 	/// </summary>
+ 	public static void RemoveAt(int line)
+ 	{
+-		foreach (var row in dt.AsEnumerable().Where(r => (int)r[ROW_LINE] == line).ToArray())
++		lock (sync)
++			RemoveWhere(l => l == line);
++	}
++
++	/// <summary>
++	/// 所在行が条件に合う div データを消す。呼び出し元が sync を持っていること。
++	///
++	/// 行の値は <c>is int</c> で確かめてから使う。<c>(int)r[ROW_LINE]</c> と直に書くと、
++	/// 値が DBNull や別の型になっていたときに InvalidCastException で
++	/// PRINT ごと落ちてしまう (MaxLog 超えの RemoveAt で実際に踏んだ)。
++	/// 型が合わない行はもう使えないので、この機会に一緒に捨てる。
++	/// </summary>
++	static void RemoveWhere(Func<int, bool> match)
++	{
++		foreach (var row in dt.AsEnumerable()
++			.Where(r => r[ROW_LINE] is not int rowLine || match(rowLine)).ToArray())
+ 		{
+-			parts.Remove((long)row[ROW_ID]);
++			if (row[ROW_ID] is long id)
++				parts.Remove(id);
+ 			dt.Rows.Remove(row);
+ 			Changed = true;
+ 		}
+@@ -102,25 +134,36 @@ internal sealed class ConsoleEscapedParts
+ 		}
+ 		if (rmap == null) return;
+ 		rmap.Clear();
+-		// すべてのdisplay:absoluteのdiv
+-		// とtop行からbottom行までの範囲内表示内容があったdiv
+-		// と所在行がtop行からbottom行までの範囲内のdiv
+-		// に対し
+-		foreach (var row in dt.AsEnumerable()
+-			.Where(r => ((sbyte)r[ROW_DIVTYPE] & 2) != 0 || (int)r[ROW_TOP] <= bottom + 1 && (int)r[ROW_BOTTOM] >= top && r[ROW_LINE] is int line
+-			&& ((sbyte)r[ROW_DIVTYPE] != 0 || top > line || line > bottom + 1)))
++		lock (sync)
+ 		{
+-			List<AConsoleDisplayNode> list = null;
+-			rmap.TryGetValue((int)row[ROW_DEPTH], out list);
+-			if (list == null)
++			// すべてのdisplay:absoluteのdiv
++			// とtop行からbottom行までの範囲内表示内容があったdiv
++			// と所在行がtop行からbottom行までの範囲内のdiv
++			// に対し
++			// (行の値は is で確かめてから使う。理由は RemoveWhere と同じ)
++			foreach (var row in dt.AsEnumerable()
++				.Where(r => r[ROW_DIVTYPE] is sbyte divType
++					&& ((divType & 2) != 0
++						|| r[ROW_TOP] is int rowTop && rowTop <= bottom + 1
++						&& r[ROW_BOTTOM] is int rowBottom && rowBottom >= top
++						&& r[ROW_LINE] is int line
++						&& (divType != 0 || top > line || line > bottom + 1))))
+ 			{
+-				list = [];
+-				rmap.Add((int)row[ROW_DEPTH], list);
++				// parts に無い行は Add が途中で落ちた残骸。描けないので飛ばす
++				if (row[ROW_DEPTH] is not int depth
++					|| row[ROW_ID] is not long id
++					|| !parts.TryGetValue(id, out var part))
++					continue;
++				if (!rmap.TryGetValue(depth, out var list))
++				{
++					list = [];
++					rmap.Add(depth, list);
++				}
++				list.Add(part);
+ 			}
+-			list.Add(parts[(long)row[ROW_ID]]);
++			getOnce = true;
++			lastTop = top; lastBottom = bottom; lastGeneration = gen;
++			Changed = false;
+ 		}
+-		getOnce = true;
+-		lastTop = top; lastBottom = bottom; lastGeneration = gen;
+-		Changed = false;
+ 	}
+ }

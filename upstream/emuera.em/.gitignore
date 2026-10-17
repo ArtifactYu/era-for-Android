@@ -1,0 +1,13 @@
+.vs/*
+.vscode/*
+.idea/*
+
+Emuera/artifacts/*
+Emuera/Emuera.csproj.user
+Emuera/Properties/PublishProfiles/*.pubxml.user
+Emuera/Properties/launchSettings.json
+Emuera/bin/*
+Emuera/obj/*
+
+*.diff
+*.patch

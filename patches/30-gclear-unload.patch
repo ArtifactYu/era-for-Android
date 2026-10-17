@@ -1,0 +1,63 @@
+From ad5d4f08a12b88bf815516bb524ce574ce37dfe4 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 17:37:24 +0900
+Subject: [PATCH] =?UTF-8?q?GCLEAR=20=E3=81=8C=E3=83=AD=E3=83=BC=E3=83=89?=
+ =?UTF-8?q?=E5=BE=8C=E3=81=AB=E8=90=BD=E3=81=A1=E3=82=8B=E3=81=AE=E3=82=92?=
+ =?UTF-8?q?=E7=9B=B4=E3=81=99?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ShinEraTenseiP でセーブをロードしたあとターンエンドの確認ダイアログを出すと
+NullReferenceException で止まった（GraphicsImage.GClear）。
+
+GCREATE は drawImgList を空リストにする（=スプライトから組み直せる画像の印）。
+UnloadTempLoadedGraphicsImageNames はこの印が付いた画像を外すので、
+BEGIN SHOP とロード直後に GCREATE した画像が g == null になる。
+そこへ ERB が作り直しにきても、GCREATE は IsCreated（印だけで真になる）を見て
+何もせず、続く GCLEAR が g を触って落ちる。
+
+範囲指定版の GClear は最初に Load() を呼び、塗ったあと drawImgList を落として
+「組み直せる画像」から外しており、色で塗りつぶす版だけがどちらもしていなかった。
+同じ手順に揃える。
+
+ShinEraTenseiP はフィルタ画像をこの形（GCREATE→GCLEAR→SPRITECREATE）で作り、
+LOCAL が消えるロード後に作り直すので、確実に踏む
+（関数\汎用組み込み関数\画像処理\画像フィルタ.ERB の @不可フィルタ）。
+
+同じ形だけを書いた最小 ERB（GCREATE/GCLEAR → BEGIN SHOP → もう一度 GCLEAR）を
+TestHarness に食わせ、当てる前は同じ NullReferenceException、
+当てた後は通ることを確認した。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/Image/GraphicsImage.cs | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/Emuera/UI/Game/Image/GraphicsImage.cs b/Emuera/UI/Game/Image/GraphicsImage.cs
+index 7105c4c..3964fcf 100644
+--- a/Emuera/UI/Game/Image/GraphicsImage.cs
++++ b/Emuera/UI/Game/Image/GraphicsImage.cs
+@@ -107,9 +107,19 @@ internal sealed class GraphicsImage : AbstractImage
+ 	/// </summary>
+ 	public void GClear(Color c)
+ 	{
++		#region 統合_GCLEARのアンロード対応
++		//範囲指定版（下の GClear）と同じ手順にする。
++		//UnLoad 済みなら描く前に読み直し、塗ったあとは「スプライトから組み直せる画像」ではなくなるので
++		//drawImgList を落とす。落とさないと UnloadTempLoadedGraphicsImageNames に
++		//また外され、次の GCLEAR が g == null で落ちる
++		Load();
++		#endregion
+ 		if (g == null)
+ 			throw new NullReferenceException();
+ 		g.Clear(c);
++		#region 統合_GCLEARのアンロード対応
++		drawImgList = null;
++		#endregion
+ 	}
+ 
+ 	#region EM_私家版_GCLEAR拡張
+-- 
+2.51.0.windows.1
+

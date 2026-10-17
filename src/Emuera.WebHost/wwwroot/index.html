@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!-- 拡大はアプリ側で実装する。ブラウザのページズームは操作バーごと動いてしまうため使わない -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>andEmuera</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #101010; color: #c0c0c0;
+    font-family: system-ui, sans-serif;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app { display: flex; flex-direction: column; height: 100%; position: relative; }
+  /* ジェスチャはすべて自前で扱う (ブラウザに横取りさせない) */
+  #screenWrap { flex: 1; position: relative; overflow: hidden; background: #101010; touch-action: none; }
+  /*
+    Emuera は下から上へ描くので、一番使う選択肢は必ず画面の最下部に来る。
+    下端を基準に置き、操作バーとの間に余白を取って押し間違いを防ぐ。
+    拡大も下端基準にすると、拡大しても選択肢が視界から外れない。
+  */
+  #screen {
+    position: absolute; bottom: 12px; left: 0; width: 100%; display: block;
+    image-rendering: auto; transform-origin: left bottom;
+    /* タップは #screenWrap で受ける。長押しの「画像を保存」も出さない */
+    pointer-events: none; -webkit-touch-callout: none; -webkit-user-drag: none;
+  }
+
+  /* 操作バー: 通常は細く、入力が要るときだけ入力欄を開く */
+  #bar {
+    display: flex; gap: 6px; padding: 3px 6px; background: #1a1a1a;
+    border-top: 1px solid #2c2c2c; align-items: center;
+  }
+  #text {
+    flex: 1; min-width: 0; padding: 7px 10px; font-size: 15px;
+    background: #101010; color: #e0e0e0; border: 1px solid #3a3a3a; border-radius: 6px;
+  }
+  #bar.collapsed #text, #bar.collapsed #send { display: none; }
+  #bar.collapsed { justify-content: space-between; }
+  /* 入力欄を開いている間はスキップの出番がない。バーを溢れさせないよう隠す */
+  #bar:not(.collapsed) #skip { display: none; }
+  button {
+    padding: 6px 12px; font-size: 13px; border-radius: 6px;
+    background: #2b2b2b; color: #e0e0e0; border: 1px solid #3a3a3a; white-space: nowrap;
+  }
+  button:active { background: #3d3d3d; }
+  /* 押しても何も起きない状態は、押せないことを見た目でも示す */
+  button:disabled { opacity: .35; }
+  /* 選択肢が無く入力欄が要るのに閉じている間、⌨ を光らせる */
+  #toggle.hint { border-color: #4d90fe; color: #cfe0ff; animation: hint 1.2s ease-in-out infinite; }
+  @keyframes hint {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(77,144,254,.55); }
+    50%      { box-shadow: 0 0 0 5px rgba(77,144,254,0); }
+  }
+
+  /* トーストは状態ピルの下に出す (ピルと重ねない) */
+  #status {
+    position: absolute; left: 0; right: 0; top: 34px; padding: 6px 10px; z-index: 6;
+    background: rgba(0,0,0,.75); font-size: 13px; transition: opacity .4s; pointer-events: none;
+  }
+  #status.hidden { opacity: 0; }
+
+  /* バックログを遡っている間だけ出す「最新へ」 */
+  #latest {
+    position: absolute; right: 10px; bottom: 20px; z-index: 5;
+    padding: 8px 14px; font-size: 13px; border-radius: 18px;
+    background: rgba(40,40,40,.92); color: #e8e8e8; border: 1px solid #4a4a4a;
+    box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  }
+  #latest.hidden { display: none; }
+
+  /* ==========================================================================
+     操作状態の可視化
+
+     画面は 1 枚の PNG が貼り替わるだけなので、タップしても絵が変わらないとき
+     「押せていない」のか「処理待ち」なのかが分からない。
+     常時出す状態ピル・処理中オーバーレイ・タップの波紋の 3 つで見分けさせる。
+     どれも pointer-events: none にして、タップ判定 (#screenWrap) を邪魔しない。
+     ========================================================================== */
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 状態ピル。色だけに頼らず、ラベルの文言でも区別できるようにしてある */
+  #pill {
+    position: absolute; left: 8px; top: 6px; z-index: 4;
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 11px 4px 9px; border-radius: 14px;
+    background: rgba(0,0,0,.62); border: 1px solid #333;
+    font-size: 12px; color: #d8d8d8; white-space: nowrap;
+    pointer-events: none;
+  }
+  #pill .dot { width: 10px; height: 10px; border-radius: 50%; background: #6a6a6a; flex: none; }
+  #pill.ok    .dot { background: #4caf50; }
+  #pill.input .dot { background: #4d90fe; }
+  #pill.idle  .dot { background: #777; }
+  #pill.bad   .dot { background: #ef5350; }
+  #pill.busy  .dot {
+    background: none; border: 2px solid rgba(255,167,38,.3); border-top-color: #ffa726;
+    animation: spin .8s linear infinite;
+  }
+
+  /* 処理中オーバーレイ。200ms を超えたときだけ出す (一瞬の処理でチカチカさせない) */
+  #busy {
+    position: absolute; inset: 0; z-index: 2;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    background: rgba(16,16,16,.5); pointer-events: none;
+    opacity: 0; transition: opacity .15s;
+  }
+  #busy.on { opacity: 1; }
+  #busy .ring {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid rgba(255,167,38,.25); border-top-color: #ffa726;
+    animation: spin .8s linear infinite;
+  }
+  #busy .label { font-size: 13px; color: #e8e8e8; text-shadow: 0 1px 3px #000; }
+
+  /* タップの波紋。結果が返ってきたら色を差し替えて消す */
+  #ripples { position: absolute; inset: 0; z-index: 3; overflow: hidden; pointer-events: none; }
+  /* 指の接触面 (高 dpi 端末で 7mm ≒ 44px) より一回り大きくして、
+     押さえている指の外側にリングがはみ出して見えるようにする */
+  .ripple {
+    position: absolute; width: 76px; height: 76px; margin: -38px 0 0 -38px;
+    border-radius: 50%; border: 3px solid rgba(255,255,255,.8);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: bold; color: #fff;
+    animation: rippleIn .2s ease-out forwards;
+  }
+  @keyframes rippleIn  { from { transform: scale(.5); opacity: .3; } to { transform: scale(1); opacity: .9; } }
+  @keyframes rippleOut { from { transform: scale(1); opacity: .9; } to { transform: scale(1.5); opacity: 0; } }
+  .ripple.accepted { border-color: #4caf50; color: #4caf50; animation: rippleOut .28s ease-out forwards; }
+  .ripple.backlog  { border-color: #4d90fe; color: #4d90fe; animation: rippleOut .45s ease-out forwards; }
+  .ripple.busy     { border-color: #ffa726; color: #ffa726; animation: rippleOut .5s  ease-out forwards; }
+  .ripple.notarget { border-color: #ef5350; color: #ef5350; animation: rippleOut .6s  ease-out forwards; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="screenWrap">
+    <img id="screen" alt="">
+    <div id="busy"><div class="ring"></div><div class="label">処理中…</div></div>
+    <div id="ripples"></div>
+    <div id="pill" class="idle"><span class="dot"></span><span class="text">接続中…</span></div>
+    <div id="status">接続中…</div>
+    <button id="latest" class="hidden">▼ 最新へ</button>
+  </div>
+  <div id="bar" class="collapsed">
+    <button id="toggle">⌨ 入力</button>
+    <button id="zoom">🔍 拡大</button>
+    <input id="text" type="text" inputmode="text" autocomplete="off" autocapitalize="off" placeholder="入力">
+    <button id="send">決定</button>
+    <button id="enter">送る</button>
+    <button id="skip">⏩ スキップ</button>
+  </div>
+</div>
+<script>
+(function () {
+  const screen = document.getElementById('screen');
+  const wrap = document.getElementById('screenWrap');
+  const status = document.getElementById('status');
+  const textBox = document.getElementById('text');
+  const latestBtn = document.getElementById('latest');
+  let ws = null, pending = false, latest = 0, shown = -1;
+  // 画面は WebSocket のバイナリフレームで push してもらう。?legacy=1 で従来の
+  // 「redraw を受けて /screen.png を GET」に戻せる (実機で切り分けるとき用)
+  const useBinary = !/[?&]legacy=1(&|$)/.test(location.search);
+  const debug = /[?&]debug=1(&|$)/.test(location.search);
+  let shownUrl = null, frameSentAt = 0;
+
+  function setStatus(msg, sticky) {
+    status.textContent = msg;
+    status.classList.remove('hidden');
+    if (!sticky) setTimeout(() => status.classList.add('hidden'), 1200);
+  }
+
+  // 表示は縮小・拡大されるので、タップ座標を元の描画解像度へ戻す。
+  // getBoundingClientRect は transform 込みの矩形を返すので拡大中もそのまま使えるが、
+  // 未反映のスクロール (scrollOffset) はサーバー側では起きていないので差し引く。
+  function toGameCoords(clientX, clientY) {
+    const rect = screen.getBoundingClientRect();
+    const scale = rect.width ? screen.naturalWidth / rect.width : 1;
+    return {
+      x: Math.round((clientX - rect.left) * scale),
+      y: Math.round((clientY - rect.top + scrollOffset) * scale)
+    };
+  }
+
+  function send(obj) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  }
+
+  // ==========================================================================
+  // 操作状態の可視化
+  //
+  // 画面は 1 枚の PNG が貼り替わるだけなので、タップしても絵が変わらないときに
+  // 「押せていない」のか「処理待ち」なのかが分からない。サーバーは
+  //   {t:"state", v:<待ち状態>, n:<選べる選択肢の数>}  … 変化したときだけ
+  //   {t:"tap",   id:<連番>,    v:<結果>}              … タップ 1 回ごと
+  // を返してくるので、状態ピル・処理中オーバーレイ・波紋の 3 つで見せる。
+  //
+  // 併せて、処理中に送った入力はここで捨てる。スクリプトは WebSocket の
+  // 受信スレッド上で同期実行されるため、処理中のタップはソケットに溜まり、
+  // 処理が終わった後の新しい画面に対して適用されてしまう (選択肢の誤爆)。
+  // ==========================================================================
+  const pill = document.getElementById('pill');
+  const pillText = pill.querySelector('.text');
+  const busyBox = document.getElementById('busy');
+  const busyLabel = busyBox.querySelector('.label');
+  const ripples = document.getElementById('ripples');
+
+  const BUSY_DELAY_MS = 200;    // これを超えて処理が続いたらオーバーレイを出す
+  const SILENCE_MS = 20000;     // これだけ無音なら待ちを打ち切る
+
+  let connected = false, everConnected = false;
+  let serverState = 'loading', serverButtons = 0;
+  let localBusy = false;        // 入力を送ってから状態が返ってくるまで
+  let stalled = false;          // 無音が続いたので待ちを諦めた
+  let busySince = 0, busyShowTimer = 0, busyTickTimer = 0;
+  let tapSeq = 0, silenceTimer = 0;
+  const pendingTaps = new Map();
+
+  function isBusy() { return !stalled && (localBusy || serverState === 'busy'); }
+
+  /// サーバーから何か届いた = 生きている。途絶えたら待ちを解いて操作を返す
+  function noteAlive() {
+    stalled = false;
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      if (!isBusy()) return;
+      stalled = true;
+      setStatus('応答がありません — タップで再試行', true);
+      applyBusy();
+      updatePill();
+    }, SILENCE_MS);
+  }
+
+  function applyState(msg) {
+    serverState = msg.v || 'none';
+    serverButtons = msg.n | 0;
+    if (serverState !== 'busy') localBusy = false;
+    applyInputMode(serverState);
+    applyBusy();
+    updatePill();
+  }
+
+  /// ピルの [色クラス, 文言]。バックログ表示中は画面側の判定を優先する
+  function pillInfo() {
+    if (!connected) return everConnected ? ['bad', '切断 — 再接続中…'] : ['busy', '接続中…'];
+    if (isBusy()) {
+      const sec = busySince ? (Date.now() - busySince) / 1000 : 0;
+      return ['busy', sec >= 1 ? '処理中… ' + sec.toFixed(1) + 's' : '処理中…'];
+    }
+    if (lastScrollMax > 0 && lastScrollValue < lastScrollMax)
+      return ['input', 'バックログ表示中 — タップで最新へ'];
+    switch (serverState) {
+      case 'enter':   return ['ok', 'タップで次へ'];
+      case 'mouse':   return ['ok', '画面をタップ'];
+      case 'integer': return serverButtons > 0 ? ['ok', '選択肢をタップ'] : ['input', '数値を入力 — ⌨ から'];
+      case 'string':
+      case 'any':     return serverButtons > 0 ? ['ok', '選択肢をタップ'] : ['input', '文字を入力 — ⌨ から'];
+      case 'void':    return ['idle', '待機中 — 操作できません'];
+      case 'error':   return ['bad', 'エラーで停止しています'];
+      case 'nomouse': return ['idle', 'マウス操作が無効です'];
+      case 'loading': return ['busy', '読み込み中…'];
+      default:        return ['idle', '入力待ちではありません'];
+    }
+  }
+
+  function updatePill() {
+    const info = pillInfo();
+    pill.className = info[0];
+    pillText.textContent = info[1];
+
+    // 押しても何も起きないボタンは無効にする
+    const blocked = !connected || isBusy() || serverState === 'void' || serverState === 'nomouse';
+    for (const id of ['send', 'enter', 'skip']) document.getElementById(id).disabled = blocked;
+
+    // 選択肢が無く入力欄が要るのに閉じている → ⌨ を光らせる。
+    // 「画面をタップし続けても何も起きない」で詰まるのを防ぐ
+    const needsTyping = !isBusy() && serverButtons === 0 &&
+      (serverState === 'integer' || serverState === 'string' || serverState === 'any');
+    document.getElementById('toggle')
+      .classList.toggle('hint', needsTyping && bar.classList.contains('collapsed'));
+  }
+
+  function applyBusy() {
+    const busy = isBusy();
+    if (busy && !busySince) {
+      busySince = Date.now();
+      busyShowTimer = setTimeout(() => busyBox.classList.add('on'), BUSY_DELAY_MS);
+      tickBusy();
+    } else if (!busy && busySince) {
+      busySince = 0;
+      clearTimeout(busyShowTimer); busyShowTimer = 0;
+      clearTimeout(busyTickTimer); busyTickTimer = 0;
+      busyBox.classList.remove('on');
+    }
+  }
+
+  /// 経過秒を出し続ける。固まって見えるのを防ぐためのもの
+  function tickBusy() {
+    clearTimeout(busyTickTimer);
+    if (!busySince) return;
+    const sec = (Date.now() - busySince) / 1000;
+    busyLabel.textContent = sec >= 1 ? '処理中… ' + sec.toFixed(1) + 's' : '処理中…';
+    updatePill();
+    busyTickTimer = setTimeout(tickBusy, 200);
+  }
+
+  const TAP_MARK  = { accepted: '', backlog: '▼', busy: '⏳', notarget: '✕' };
+  const TAP_TOAST = {
+    notarget: 'ここは選択肢ではありません',
+    backlog: '最新へ戻しました',
+    busy: '処理中です',
+    disabled: 'マウス操作が無効です (emuera.config)',
+  };
+
+  /// タップ位置に波紋を出す。kind が null なら結果待ち (白いリングのまま置く)
+  function spawnRipple(clientX, clientY, kind) {
+    if (clientX === undefined) return null;
+    const rect = wrap.getBoundingClientRect();
+    const el = document.createElement('div');
+    el.className = 'ripple';
+    el.style.left = (clientX - rect.left) + 'px';
+    el.style.top = (clientY - rect.top) + 'px';
+    ripples.appendChild(el);
+    if (kind) resolveRipple(el, kind);
+    else setTimeout(() => el.remove(), 30000);   // 返事が来なかった場合の掃除
+    return el;
+  }
+
+  function resolveRipple(el, kind) {
+    if (!el) return;
+    el.textContent = TAP_MARK[kind] || '';
+    el.classList.add(kind);
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+    // 裏に回っているとアニメーションが進まず animationend が来ない。時間でも消す
+    setTimeout(() => el.remove(), 1500);
+  }
+
+  function applyTapResult(msg) {
+    const el = pendingTaps.get(msg.id);
+    pendingTaps.delete(msg.id);
+    // UseMouse 無効も「押せない」の一種なので同じ赤で見せる
+    resolveRipple(el, msg.v === 'disabled' ? 'notarget' : msg.v);
+    if (TAP_TOAST[msg.v]) setStatus(TAP_TOAST[msg.v]);
+    else status.classList.add('hidden');   // 通った操作に前の警告を残さない
+    if ((msg.v === 'notarget' || msg.v === 'disabled') && navigator.vibrate)
+      navigator.vibrate([20, 40, 20]);
+  }
+
+  /// 入力系の送信。処理中は送らずに捨て、その旨だけ返す
+  function sendInput(obj, clientX, clientY) {
+    if (!connected) {
+      spawnRipple(clientX, clientY, 'notarget');
+      setStatus('切断中です');
+      return false;
+    }
+    if (isBusy()) {
+      spawnRipple(clientX, clientY, 'busy');
+      setStatus('処理中です');
+      return false;
+    }
+    const id = obj.id = ++tapSeq;
+    send(obj);
+    const el = spawnRipple(clientX, clientY, null);
+    if (el) {
+      pendingTaps.set(id, el);
+      setTimeout(() => pendingTaps.delete(id), 30000);   // 返事が来なかった分の掃除
+    }
+    // サーバーの busy を待たずに閉じる。往復の隙間で連打が抜けてしまうため
+    stalled = false;
+    localBusy = true;
+    applyBusy();
+    updatePill();
+    return true;
+  }
+
+  // 従来経路 (?legacy=1)。redraw を受けてから画像を GET しに行く
+  function refresh() {
+    if (pending || shown === latest) return;
+    pending = true;
+    const wanted = latest;
+    const img = new Image();
+    img.onload = () => {
+      screen.src = img.src;
+      shown = wanted;
+      pending = false;
+      if (shown !== latest) refresh();
+    };
+    img.onerror = () => { pending = false; };
+    img.src = '/screen.png?v=' + wanted;
+  }
+
+  // WebSocket で届いた画像フレーム。先頭 16 バイトはヘッダ (BuildFrame と対)。
+  //
+  // canvas ではなく <img> のままにしているのは、拡大時に元データから描き直させて
+  // 文字を鮮明に保つため。裏で new Image() にデコードさせ、終わってから差し替える
+  // ことで、切り替わりの瞬間に空白が出ない。
+  function onFrame(blob) {
+    const t0 = performance.now();
+    blob.slice(0, 16).arrayBuffer().then((head) => {
+      const h = new DataView(head);
+      if (h.getUint8(0) !== 69 || h.getUint8(1) !== 77) { send({ t: 'ack' }); return; }
+      // ヘッダのスクロール位置は同じ世代の redraw で既に反映済みなので読むだけ。
+      // ここで applyScrollState を呼ぶと、行未満の先行表示 (scrollOffset) が
+      // 二重に「動かなかった」と判定されて消えてしまう
+      const gen = h.getUint32(4, true);
+
+      const url = URL.createObjectURL(blob.slice(16, blob.size, 'image/png'));
+      const img = new Image();
+      img.onload = () => {
+        screen.src = url;
+        // 差し替えが終わってから 1 つ前を捨てる。先に捨てると今の src が無効になる
+        if (shownUrl) URL.revokeObjectURL(shownUrl);
+        shownUrl = url;
+        shown = gen;
+        if (debug) {
+          const now = performance.now();
+          setStatus(`frame ${gen}: 復号 ${(now - t0) | 0}ms / 間隔 ${frameSentAt ? (now - frameSentAt) | 0 : 0}ms`);
+          frameSentAt = now;
+        }
+        send({ t: 'ack' });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        send({ t: 'ack' });   // 返さないとサーバーが次を作らなくなる
+      };
+      img.src = url;
+    }).catch(() => send({ t: 'ack' }));
+  }
+
+  // ゲーム内の 1 ピクセル = CSS の 1 ピクセルとして扱う。
+  // devicePixelRatio を掛けると端末によって文字が極端に小さくなるため掛けない。
+  const BOTTOM_GAP = 12; // #screen の bottom と揃える
+
+  // 描画サイズの通知。レイアウトが決まる前は測れないので、決まるまで送り直す。
+  // (WebView が裏に回っていると requestAnimationFrame が来ないため、タイマーで粘る)
+  let sentW = 0, sentH = 0, resizeTimer = 0, resizeTries = 0;
+
+  function sendResize() {
+    const w = Math.round(wrap.clientWidth), h = Math.round(wrap.clientHeight - BOTTOM_GAP);
+    if (w < 200 || h < 200) return false;
+    if (w === sentW && h === sentH) return true;
+    send({ t: 'resize', w: w, h: h });
+    sentW = w; sentH = h;
+    return true;
+  }
+
+  function scheduleResize(delay) {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      resizeTimer = 0;
+      clampPan();
+      applyView();
+      if (!sendResize() && ++resizeTries < 20) scheduleResize(200);
+    }, delay === undefined ? 60 : delay);
+  }
+
+  function connect() {
+    ws = new WebSocket('ws://' + location.host + '/ws');
+    ws.binaryType = 'blob';
+    ws.onopen = () => {
+      setStatus('接続しました');
+      sentW = sentH = 0; resizeTries = 0;
+      queuedLines = 0; awaitingScroll = false; scrollOffset = 0;
+      connected = true; everConnected = true; localBusy = false;
+      noteAlive();
+      applyBusy(); updatePill();
+      send({ t: 'hello', binary: useBinary });
+      scheduleResize(0);
+    };
+    ws.onclose = () => {
+      setStatus('切断されました。再接続します…', true);
+      connected = false; localBusy = false;
+      clearTimeout(silenceTimer);
+      applyBusy(); updatePill();
+      setTimeout(connect, 1000);
+    };
+    ws.onmessage = (ev) => {
+      noteAlive();
+      if (typeof ev.data !== 'string') { onFrame(ev.data); return; }
+      const msg = JSON.parse(ev.data);
+      // バイナリ push のときは画像がそのまま来るので、redraw では位置情報だけ拾う
+      if (msg.t === 'redraw') { latest = msg.v; applyScrollState(msg); if (!useBinary) refresh(); }
+      else if (msg.t === 'scrollstate') { applyScrollState(msg); }
+      else if (msg.t === 'metrics') { lineHeightGame = msg.lineHeight || 0; }
+      else if (msg.t === 'input') { textBox.value = msg.v || ''; }
+      else if (msg.t === 'title') { document.title = msg.v || 'andEmuera'; }
+      else if (msg.t === 'tip') { setStatus(msg.v); }
+      else if (msg.t === 'state') { applyState(msg); }
+      else if (msg.t === 'tap') { applyTapResult(msg); }
+    };
+  }
+
+  // --- 入力 ---
+  const bar = document.getElementById('bar');
+
+  // Emuera が待っている入力の種類。数値待ちのときは全角数字を半角に直す
+  let inputMode = 'none';
+
+  function toHalfWidthDigits(s) {
+    return s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+            .replace(/[－ー−]/g, '-')
+            .trim();
+  }
+
+  function submit() {
+    let value = textBox.value;
+    if (inputMode === 'integer' || inputMode === 'any') value = toHalfWidthDigits(value);
+    if (!sendInput({ t: 'submit', v: value })) return;
+    textBox.value = '';
+  }
+
+  function applyInputMode(mode) {
+    // 処理中は一瞬の通過点でしかない。ここで組み替えると
+    // タップのたびにソフトキーボードが作り直されてしまう
+    if (mode === 'busy') return;
+    inputMode = mode;
+    // 数値待ちならテンキーを出す。IME が日本語のままだと全角になり Emuera が受け取れない
+    textBox.inputMode = (mode === 'integer') ? 'numeric' : 'text';
+    textBox.placeholder = (mode === 'integer') ? '数値を入力' : '入力';
+  }
+
+  document.getElementById('toggle').addEventListener('click', () => {
+    bar.classList.toggle('collapsed');
+    if (!bar.classList.contains('collapsed')) textBox.focus();
+    else textBox.blur();
+    resizeTries = 0;
+    scheduleResize(120);
+    updatePill();   // ⌨ の強調は開閉で変わる
+  });
+  document.getElementById('send').addEventListener('click', submit);
+  // メッセージ待ちを進めるだけのボタン (Enter 相当)
+  document.getElementById('enter').addEventListener('click', () => sendInput({ t: 'enter' }));
+  // 右クリック相当 (画面の長押しと同じ)。メッセージ待ちなら mesSkip が立ってスキップになる
+  document.getElementById('skip').addEventListener('click', () => sendInput({ t: 'skip' }));
+  textBox.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+  });
+
+  // ==========================================================================
+  // 表示 (拡大とパン)
+  //
+  // 拡大は img の CSS 幅そのものを変える。transform: scale だと元画像を
+  // 引き伸ばした絵になり文字がぼやけるため、レイアウト幅を変えて描き直させる。
+  // ピンチ中だけは追従を優先して scale で先に見せ、指を離した時点で幅に反映する。
+  // 基準は左下 (transform-origin)。Emuera が下端から行を積むので、
+  // 拡大しても最下部の選択肢が視界から外れない。
+  // ==========================================================================
+  const ZOOM_MAX = 6;
+  let zoom = 1;          // 1 = 画面幅にフィット
+  let pinch = 1;         // ピンチ中の先行表示ぶん (離すと zoom に畳む)
+  let panX = 0, panY = 0;
+  let scrollOffset = 0;  // まだサーバーに反映されていないスクロール量 (CSS px)
+  let appliedWidth = 0;
+
+  function baseWidth() { return wrap.clientWidth; }
+  function baseHeight() {
+    return screen.naturalWidth ? baseWidth() * screen.naturalHeight / screen.naturalWidth : 0;
+  }
+  function viewWidth() { return wrap.clientWidth; }
+  function viewHeight() { return wrap.clientHeight - BOTTOM_GAP; }
+
+  function clampPan() {
+    const ew = baseWidth() * zoom * pinch;
+    const eh = baseHeight() * zoom * pinch;
+    panX = Math.min(0, Math.max(viewWidth() - ew, panX));
+    panY = Math.max(0, Math.min(Math.max(0, eh - viewHeight()), panY));
+  }
+
+  function applyView() {
+    // レイアウト前は幅が 0 になる。その場合は CSS の width:100% のままにしておく
+    const w = baseWidth() * zoom;
+    if (w > 0 && w !== appliedWidth) {
+      screen.style.width = w + 'px';
+      appliedWidth = w;
+    }
+    screen.style.transform =
+      'translate(' + panX + 'px,' + (panY + scrollOffset) + 'px) scale(' + pinch + ')';
+  }
+
+  function setZoom(next, focusX, focusY) {
+    next = Math.max(1, Math.min(ZOOM_MAX, next));
+    if (next === zoom) return;
+    // 指定した点が動かないように pan を補正する (原点は画像の左下)
+    const rect = wrap.getBoundingClientRect();
+    const imgLeft = rect.left, imgBottom = rect.bottom - BOTTOM_GAP;
+    const u = (focusX - imgLeft - panX) / zoom;
+    const v = (imgBottom + panY - focusY) / zoom;
+    panX += u * (zoom - next);
+    panY += v * (next - zoom);
+    zoom = next;
+    if (zoom === 1) { panX = 0; panY = 0; }
+    clampPan();
+    applyView();
+  }
+
+  // 等倍 = 画像 1 ピクセルを CSS 1 ピクセルで出す (いちばん文字が読める倍率)
+  function actualSizeZoom() {
+    const bw = baseWidth();
+    return bw ? Math.min(ZOOM_MAX, Math.max(1, screen.naturalWidth / bw)) : 1;
+  }
+
+  document.getElementById('zoom').addEventListener('click', () => {
+    // 下端中央を固定して拡大する。Emuera は最新行と選択肢を下端に置くので、
+    // 拡大した直後にいちばん押したいものが目の前に来る
+    const rect = wrap.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2, cy = rect.bottom - BOTTOM_GAP;
+    const target = zoom > 1 ? 1 : actualSizeZoom();
+    setZoom(target, cx, cy);
+    setStatus(zoom > 1 ? '拡大 ' + zoom.toFixed(1) + '倍' : '画面幅に合わせました');
+  });
+
+  // ==========================================================================
+  // スクロール (バックログ)
+  //
+  // 画面は 1 枚の PNG 転送なので、1 行送るたびに往復を待つとフリックがカクつく。
+  // ドラッグ量のうち行に満たない端数を translate で先に見せ (scrollOffset)、
+  // 整数行ぶんだけをサーバーへ送る。スクロールは既存の内容が行高ぶん
+  // 平行移動するだけなので、先行表示と実際の描画はほぼ一致する。
+  // ==========================================================================
+  let lineHeightGame = 0;   // metrics で受け取る (ゲーム内ピクセル)
+  let queuedLines = 0;      // 送りそびれている行数
+  let awaitingScroll = false;
+  let lastScrollValue = -1, lastScrollMax = 0;
+  let lastPoint = { x: 0, y: 0 };
+
+  function lineHeightCss() {
+    if (!lineHeightGame || !screen.naturalWidth) return 0;
+    return lineHeightGame * baseWidth() * zoom * pinch / screen.naturalWidth;
+  }
+
+  let scrollWatchdog = 0;
+
+  function flushScroll() {
+    if (queuedLines === 0 || awaitingScroll) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    send({ t: 'scrollLines', n: queuedLines, x: lastPoint.x, y: lastPoint.y });
+    queuedLines = 0;
+    awaitingScroll = true;
+    // 返事が来ないままだと二度とスクロールできなくなるので保険をかける
+    clearTimeout(scrollWatchdog);
+    scrollWatchdog = setTimeout(() => { awaitingScroll = false; flushScroll(); }, 2000);
+  }
+
+  /// その向きにまだ送れる余地があるか (端に着いたら慣性を止めるのに使う)
+  function canScroll(dy) {
+    if (lineHeightCss() <= 0 || lastScrollMax <= 0) return false;
+    if (dy > 0) return lastScrollValue > 0;                // 過去へ
+    if (dy < 0) return lastScrollValue < lastScrollMax;    // 最新へ
+    return false;
+  }
+
+  /// 指の縦移動のうちパンで吸収しきれなかったぶんをログ送りに回す
+  function scrollByPixels(dy) {
+    const lh = lineHeightCss();
+    if (lh <= 0) return false;
+    scrollOffset += dy;
+    const n = Math.trunc(scrollOffset / lh);
+    if (n !== 0) {
+      scrollOffset -= n * lh;
+      queuedLines += n;
+      flushScroll();
+    }
+    // 端に張り付いたときに先行表示だけが伸びていかないように抑える
+    scrollOffset = Math.max(-lh, Math.min(lh, scrollOffset));
+    return true;
+  }
+
+  function applyScrollState(msg) {
+    clearTimeout(scrollWatchdog);
+    awaitingScroll = false;
+    const s = msg.s | 0, max = msg.max | 0;
+    // 要求したのに動かなかった = 端に達している。先行表示を戻す
+    if (s === lastScrollValue && max === lastScrollMax) scrollOffset = 0;
+    lastScrollValue = s; lastScrollMax = max;
+    latestBtn.classList.toggle('hidden', !(max > 0 && s < max));
+    updatePill();   // バックログを見ているかどうかはピルにも出す
+    applyView();
+    flushScroll();
+  }
+
+  latestBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    queuedLines = 0;
+    scrollOffset = 0;
+    applyView();
+    send({ t: 'latest' });
+  });
+  // #screenWrap の中にあるので、ボタンへのタッチが画面のタップに化けないよう止める
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'contextmenu']) {
+    latestBtn.addEventListener(type, (e) => e.stopPropagation());
+  }
+
+  // ==========================================================================
+  // ジェスチャ
+  // ==========================================================================
+  const TAP_SLOP = 10;        // これ以上動いたらタップではない (px)
+  const TAP_MS = 500;
+  const LONG_PRESS_MS = 500;  // 長押し = 右クリック (メッセージスキップ)
+
+  let dragging = false, moved = false, longPressed = false;
+  let startX = 0, startY = 0, startT = 0, lastX = 0, lastY = 0;
+  let velocity = 0, lastMoveT = 0;
+  let longPressTimer = 0;
+  let inertiaId = 0;
+  let lastTouchEnd = 0;
+
+  // ピンチ
+  let pinching = false, pinchStartDist = 0, pinchStartZoom = 1, pinchMidX = 0, pinchMidY = 0;
+
+  function stopInertia() {
+    if (inertiaId) { cancelAnimationFrame(inertiaId); inertiaId = 0; }
+    velocity = 0;
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
+  }
+
+  /// 縦の指移動を「パン → 余りはログ送り」の順に配る。何か動いたら true
+  function dragVertical(dy) {
+    const eh = baseHeight() * zoom * pinch;
+    const maxPan = Math.max(0, eh - viewHeight());
+    const applied = Math.max(0, Math.min(maxPan, panY + dy));
+    const used = applied - panY;
+    panY = applied;
+    const rest = dy - used;
+    if (rest !== 0 && canScroll(rest)) return scrollByPixels(rest) || used !== 0;
+    return used !== 0;
+  }
+
+  function dragHorizontal(dx) {
+    const ew = baseWidth() * zoom * pinch;
+    panX = Math.min(0, Math.max(viewWidth() - ew, panX + dx));
+  }
+
+  function distance(a, b) {
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  }
+
+  wrap.addEventListener('touchstart', (e) => {
+    stopInertia();
+    if (e.touches.length >= 2) {
+      cancelLongPress();
+      dragging = false;
+      pinching = true;
+      pinchStartDist = distance(e.touches[0], e.touches[1]) || 1;
+      pinchStartZoom = zoom;
+      pinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      pinchMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      return;
+    }
+    const t = e.touches[0];
+    dragging = true; moved = false; longPressed = false;
+    startX = lastX = t.clientX; startY = lastY = t.clientY;
+    startT = lastMoveT = Date.now();
+    velocity = 0;
+    lastPoint = toGameCoords(t.clientX, t.clientY);
+
+    cancelLongPress();
+    longPressTimer = setTimeout(() => {
+      longPressTimer = 0;
+      if (!dragging || moved) return;
+      longPressed = true;
+      // 右クリック相当。メッセージ待ちなら mesSkip が立ってスキップになる
+      const p = toGameCoords(startX, startY);
+      // click はサーバー側で MoveMouse を通してから確定する。move を別送すると
+      // 画面が変わっていなくても 1 世代進み、画面まるごとの再エンコードが余分に走る
+      if (sendInput({ t: 'click', x: p.x, y: p.y, right: true }, startX, startY) && navigator.vibrate)
+        navigator.vibrate(10);
+    }, LONG_PRESS_MS);
+  }, { passive: true });
+
+  wrap.addEventListener('touchmove', (e) => {
+    if (pinching && e.touches.length >= 2) {
+      const d = distance(e.touches[0], e.touches[1]);
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      // 2 本指の移動ぶんはそのままパンにする
+      panX += mx - pinchMidX;
+      panY += my - pinchMidY;
+      pinchMidX = mx; pinchMidY = my;
+
+      // 中点の下にある画素が動かないように pan を補正しながら倍率を変える
+      const want = Math.max(1, Math.min(ZOOM_MAX, pinchStartZoom * (d / pinchStartDist)));
+      const next = want / zoom;
+      const rect = wrap.getBoundingClientRect();
+      const u = (mx - rect.left - panX) / pinch;
+      const v = (rect.bottom - BOTTOM_GAP + panY - my) / pinch;
+      panX += u * (pinch - next);
+      panY += v * (next - pinch);
+      pinch = next;
+
+      clampPan();
+      applyView();
+      return;
+    }
+    if (!dragging || e.touches.length !== 1) return;
+
+    const t = e.touches[0];
+    const dx = t.clientX - lastX, dy = t.clientY - lastY;
+    lastX = t.clientX; lastY = t.clientY;
+
+    if (!moved && Math.hypot(t.clientX - startX, t.clientY - startY) > TAP_SLOP) {
+      moved = true;
+      cancelLongPress();
+    }
+    if (!moved || longPressed) return;
+
+    const now = Date.now();
+    const dt = Math.max(1, now - lastMoveT);
+    lastMoveT = now;
+    velocity = velocity * 0.6 + (dy / dt) * 0.4;   // CSS px / ms。1 サンプルだと荒れるので均す
+    lastPoint = toGameCoords(t.clientX, t.clientY);
+
+    dragHorizontal(dx);
+    dragVertical(dy);
+    clampPan();
+    applyView();
+  }, { passive: true });
+
+  wrap.addEventListener('touchend', (e) => {
+    lastTouchEnd = Date.now();
+    cancelLongPress();
+
+    if (pinching) {
+      if (e.touches.length === 0) {
+        // 先行表示していた倍率をレイアウト幅に畳む (ここで文字が描き直されて鮮明になる)
+        pinching = false;
+        zoom = Math.max(1, Math.min(ZOOM_MAX, zoom * pinch));
+        pinch = 1;
+        if (zoom === 1) { panX = 0; panY = 0; }
+        clampPan();
+        applyView();
+      }
+      return;
+    }
+    if (!dragging) return;
+    dragging = false;
+
+    if (longPressed) return;
+
+    if (!moved && Date.now() - startT < TAP_MS) {
+      const p = toGameCoords(startX, startY);
+      sendInput({ t: 'click', x: p.x, y: p.y }, startX, startY);
+      return;
+    }
+    startInertia();
+  });
+
+  wrap.addEventListener('touchcancel', () => {
+    cancelLongPress();
+    dragging = false; pinching = false;
+    if (pinch !== 1) { zoom = Math.max(1, Math.min(ZOOM_MAX, zoom * pinch)); pinch = 1; }
+    clampPan();
+    applyView();
+  });
+
+  // 指を離したあとの慣性。減衰しきるか、端に張り付いたら止める
+  function startInertia() {
+    const FRICTION = 0.94, MIN_V = 0.03, MAX_V = 4;
+    let v = Math.max(-MAX_V, Math.min(MAX_V, velocity));
+    if (Math.abs(v) < MIN_V) return;
+    let prev = Date.now();
+    const step = () => {
+      const now = Date.now();
+      const dt = Math.min(50, Math.max(1, now - prev));
+      prev = now;
+      const alive = dragVertical(v * dt);
+      clampPan();
+      applyView();
+      v *= Math.pow(FRICTION, dt / 16);
+      // 減衰しきったか、端に着いて何も動かなくなったら打ち切る
+      if (Math.abs(v) < MIN_V || !alive) { inertiaId = 0; return; }
+      inertiaId = requestAnimationFrame(step);
+    };
+    inertiaId = requestAnimationFrame(step);
+  }
+
+  // 画像の長押しメニュー (「画像を保存」) を出さない
+  wrap.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // マウス操作 (PC のブラウザで確認するとき用)。
+  // touchend のあとブラウザが互換の click を投げてくることがあり、
+  // pointerType の判定だけでは WebView の版によって漏れるので時刻でも弾く。
+  wrap.addEventListener('click', (e) => {
+    if (e.pointerType === 'touch' || Date.now() - lastTouchEnd < 700) return;
+    const p = toGameCoords(e.clientX, e.clientY);
+    sendInput({ t: 'click', x: p.x, y: p.y }, e.clientX, e.clientY);
+  });
+  wrap.addEventListener('wheel', (e) => {
+    lastPoint = toGameCoords(e.clientX, e.clientY);
+    // ホイール 1 ノッチで 3 行。上回転で過去へ
+    queuedLines += (e.deltaY > 0 ? -3 : 3);
+    flushScroll();
+  }, { passive: true });
+
+  // 画面は 1 秒に何度も貼り替わるので、描画サイズが変わったときだけ組み直す
+  screen.addEventListener('load', () => {
+    clampPan();
+    applyView();
+  });
+
+  // 画面回転・キーボードの開閉で描画領域が変わる
+  window.addEventListener('resize', () => { resizeTries = 0; scheduleResize(); });
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => { resizeTries = 0; scheduleResize(); }).observe(wrap);
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>

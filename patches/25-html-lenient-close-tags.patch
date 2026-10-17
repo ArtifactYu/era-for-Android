@@ -1,0 +1,66 @@
+From e6ed0043f4c6c7ee48bcc322a839519bf892e40d Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 15:38:19 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E5=AF=BE=E5=BF=9C?=
+ =?UTF-8?q?=E3=81=99=E3=82=8B=E9=96=8B=E5=A7=8B=E3=82=BF=E3=82=B0=E3=81=AE?=
+ =?UTF-8?q?=E7=84=A1=E3=81=84=E7=B5=82=E4=BA=86=E3=82=BF=E3=82=B0=E3=82=92?=
+ =?UTF-8?q?=E8=AA=AD=E3=81=BF=E9=A3=9B=E3=81=B0=E3=81=99?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ShinEraTenseiP の RPG\ダンジョンアタック\SYSTEM_DUNGEON.ERB:2638 と :2679 が
+<font size='300'> を </fontsize> で閉じている。EM+EE の tagAnalyze は知らない
+終了タグをエラーにするため、ダンジョンでエンカウントすると
+「終了タグ</fontsize>は解釈できません」で止まっていた。
+
+.netEmuera は HTML パーサ(AngleSharp)なので、HTML の規則(any other end tag)
+どおり対応する開始タグの無い終了タグは無視する。閉じ忘れたタグも文書の終わりで
+自動的に閉じる。その2点に合わせ、閉じ忘れ判定からは <b>/<i>/<u>/<s> と <font> を
+外した。<button> は入力の意味を持つので従来どおりエラーにする。
+
+</div> の閉じ忘れを自動で閉じるパッチ(08)と同じ考え方。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/HtmlManager.cs | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index 81b41c4..e94ea4a 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -648,7 +648,13 @@ internal static class HtmlManager
+ 		//.netEmuera は AngleSharp なのでこれを許しており、</div> を <div> と打ち間違えたまま
+ 		//配布されているバリアントが実際にある
+ 		#endregion
+-		if (state.CurrentButtonTag != null || state.FontStyle != FontStyle.Regular || state.FonttagList.Count > 0)
++		#region 統合_netEmuera_閉じタグ寛容化
++		//閉じ忘れた <b>/<i>/<u>/<s>/<font> は HTML と同じく末尾で自動的に閉じる。
++		//.netEmuera は AngleSharp なので閉じ忘れを許しており、ShinEraTenseiP の
++		//SYSTEM_DUNGEON.ERB は <font size='300'> を閉じないまま行を終える。
++		//<button> は入力の意味を持つので従来どおりエラーにする
++		#endregion
++		if (state.CurrentButtonTag != null)
+ 			throw new CodeEE(trerror.TagIsNotClosed.Text);
+ 		if (cssList.Count > 0)
+ 			buttonList.Add(cssToButton(cssList, state, console));
+@@ -1065,8 +1071,14 @@ internal static class HtmlManager
+ 					state.CurrentDivTag = null;
+ 					return null;
+ 				#endregion
++				#region 統合_netEmuera_閉じタグ寛容化
+ 				default:
+-					throw new CodeEE(string.Format(trerror.CanNotInterpretCloseTag.Text, tag));
++					//開いていない要素の終了タグは読み飛ばす。.netEmuera は HTML パーサ(AngleSharp)
++					//なので、HTML の規則(any other end tag)どおり対応する開始タグが無ければ無視する。
++					//ShinEraTenseiP の SYSTEM_DUNGEON.ERB:2638 が <font size='300'> を
++					//</fontsize> で閉じており、エンカウント表示がここで止まっていた
++					return null;
++				#endregion
+ 			}
+ 			//goto error;
+ 		}
+-- 
+2.51.0.windows.1
+

@@ -1,0 +1,123 @@
+From 96ff0d9fcc4d51dac4a7ffa32674f281c56598c7 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 18:48:04 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20=E9=96=89=E3=81=98?=
+ =?UTF-8?q?=E5=BF=98=E3=82=8C=E3=81=9F=20div=20=E3=81=AE=E4=B8=AD=E3=81=AE?=
+ =?UTF-8?q?=20</button>=20=E3=82=92=E5=A4=96=E5=81=B4=E3=81=B8=E7=B9=B0?=
+ =?UTF-8?q?=E3=82=8A=E4=B8=8A=E3=81=92=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ShinEraTenseiP の ＳＨＯＰ関連\RAG_SHOP\RAG_SHOP奴隷交換.ERB:455 が
+<div><button>バナー</button></div> という形でラグの店のチケット画面を出すが、
+バナーを作る @MAKE_RAG_DOREI_BUNNER の「枠1」の <div> が閉じられていない。
+
+EM+EE は <div> の中身を html2DisplayLine の再帰で読み、子の解析状態に
+CurrentDivTag や FontStyle は引き継ぐが CurrentButtonTag は引き継がない。
+そのため閉じ忘れた div の階層で </button> に出くわし、
+「</button>の前に<button>がありません」で画面が開けなかった。
+
+.netEmuera は HTML パーサ(AngleSharp)なので、HTML の規則
+(an end tag whose tag name is "button") どおり開いている <div> を暗黙に閉じてから
+button を閉じる。その挙動に合わせ、この階層に開いている button が無く div の中に
+居るときは、div を閉じてタグの手前まで読み位置を戻し、外側の階層に読み直させる。
+何段入れ子でも各階層が同じ判定をするので繰り上がる。
+div の外の迷子な </button> は従来どおりエラーにする。
+
+閉じ忘れを許すパッチ(08/25)と、<button> の中で <div> を開けるようにする
+パッチ(17)の間に空いていた穴にあたる。
+
+落ちている形をそのまま書いた最小 ERB を TestHarness に食わせ、当てる前は同じ
+エラー、当てた後は枠と [1] NAME が出ることを確認した。<div> が閉じている通常形と、
+div の外の </button> が従来どおりであることも見ている。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ Emuera/UI/Game/HtmlManager.cs | 41 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index f2e1bb2..ff7128a 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -283,6 +283,10 @@ internal static class HtmlManager
+ 		/// <summary>開いたばかりで、これから中身を組み立てる div</summary>
+ 		public HtmlDivTag PendingDivTag;
+ 		#endregion
++		#region 統合_netEmuera_button閉じタグの繰り上げ
++		/// <summary>この階層に対応する開始タグが無い終了タグ。div を閉じて外側の階層で読み直させる</summary>
++		public bool ClosingAncestorTag;
++		#endregion
+ 		public int SubDivisionWidth;
+ 		// public int SubDivisionXOffset; // 必要がなさそうなので削除する
+ 		#endregion
+@@ -573,8 +577,21 @@ internal static class HtmlManager
+ 					st.ShiftNext();
+ 					continue;
+ 				}
++				//統合_netEmuera_button閉じタグの繰り上げ: 読み直しに備えてタグの先頭を覚える
++				int tagStart = st.CurrentPosition;
+ 				st.ShiftNext();
+ 				AConsoleDisplayNode part = tagAnalyze(state, st);
++				#region 統合_netEmuera_button閉じタグの繰り上げ
++				if (state.ClosingAncestorTag)
++				{
++					//閉じ忘れた div を暗黙に閉じ、この終了タグは外側の階層に読み直させる。
++					//CurrentDivTag を落とすのは、この後の折り返しと寄せを明示の </div> と同じ経路に通すため
++					state.ClosingAncestorTag = false;
++					state.CurrentDivTag = null;
++					st.CurrentPosition = tagStart;
++					break;
++				}
++				#endregion
+ 				if (st.Current != '>')
+ 					throw new CodeEE(trerror.NotFoundTerminateTag.Text);
+ 				if (part != null)
+@@ -1016,6 +1033,22 @@ internal static class HtmlManager
+ 			pos++;
+ 		return pos < src.Length && char.IsAsciiLetter(src[pos]);
+ 	}
++
++	/// <summary>
++	/// &lt;/button&gt; / &lt;/nonbutton&gt; が外側の階層のものかを返す。真なら繰り上げの印を立てる。
++	/// div の中身は別の解析状態で読むため、子は親の開いている button を知らない。
++	/// .netEmuera は HTML パーサ(AngleSharp)なので、HTML の規則(an end tag whose tag name is
++	/// "button")どおり開いている &lt;div&gt; を暗黙に閉じてから button を閉じる。
++	/// ShinEraTenseiP の RAG_SHOP奴隷交換.ERB が &lt;button&gt; の中で &lt;div&gt; を閉じ忘れたまま
++	/// &lt;/button&gt; を書くので、これが無いとラグの店のチケット画面が開けない。
++	/// </summary>
++	private static bool closeTagBelongsToAncestor(HtmlAnalzeState state)
++	{
++		if (state.CurrentButtonTag != null || state.CurrentDivTag == null)
++			return false;
++		state.ClosingAncestorTag = true;
++		return true;
++	}
+ 	#endregion
+ 
+ 	private static AConsoleDisplayNode tagAnalyze(HtmlAnalzeState state, CharStream st)
+@@ -1060,12 +1093,20 @@ internal static class HtmlManager
+ 					state.FonttagList.RemoveAt(state.FonttagList.Count - 1);
+ 					return null;
+ 				case "button":
++					#region 統合_netEmuera_button閉じタグの繰り上げ
++					if (closeTagBelongsToAncestor(state))
++						return null;
++					#endregion
+ 					if (state.CurrentButtonTag == null || !state.CurrentButtonTag.IsButtonTag)
+ 						throw new CodeEE(string.Format(trerror.UnexpectedCloseTag.Text, "button"));
+ 					state.CurrentButtonTag = null;
+ 					state.FlagButton = true;
+ 					return null;
+ 				case "nonbutton":
++					#region 統合_netEmuera_button閉じタグの繰り上げ
++					if (closeTagBelongsToAncestor(state))
++						return null;
++					#endregion
+ 					if (state.CurrentButtonTag == null || state.CurrentButtonTag.IsButtonTag)
+ 						throw new CodeEE(string.Format(trerror.UnexpectedCloseTag.Text, "nonbutton"));
+ 					state.CurrentButtonTag = null;
+-- 
+2.51.0.windows.1
+

@@ -1,0 +1,147 @@
+﻿From b7a9688b0cdfddf35dd3c62bdeb23a941f4a8c14 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Wed, 12 Aug 2026 23:03:29 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20HTML=5FPRINT=5FISLAND=20?=
+ =?UTF-8?q?=E3=81=AE=E4=B8=AD=E8=BA=AB=E3=82=92=E3=82=AF=E3=83=AA=E3=83=83?=
+ =?UTF-8?q?=E3=82=AF=E3=81=A7=E3=81=8D=E3=82=8B=E3=82=88=E3=81=86=E3=81=AB?=
+ =?UTF-8?q?=E3=81=99=E3=82=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+島（HTML_PRINT_ISLAND）の内容は描画されるだけで、当たり判定に一切
+入っていなかった。ヒットテストは displayLineList と ConsoleEscapedParts
+しか見ておらず、島は _htmlElementList という別の入れ物に居るため。
+ShinEraTenseiP の能力確認ウィンドウは「枠外クリックで戻る」を島の中の
+ボタンで作っているので、これが効かなかった。
+
+本文より後に最前面へ描かれるものなので、本文より先に判定する。
+並びは描画と同じく画面上端から Config.LineHeight 刻み。
+島の中の div にも親ボタンを持たせる（行に属さないので
+ConsoleEscapedParts には登録しない）。
+
+あわせて、絶対配置の div の当たり判定を DrawTo と同じ原点で出すように
+する。従来は display を見ずに相対配置の式で矩形を作っていたので、
+absolute-lefttop / absolute-leftbottom では縦位置がまるごとずれていた。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../Runtime/Utils/EvilMask/ConsoleDivPart.cs  | 20 +++++++++--
+ Emuera/UI/Game/EmueraConsole.Print.cs         | 19 +++++++++-
+ Emuera/UI/Game/EmueraConsole.cs               | 35 +++++++++++++++++++
+ 3 files changed, 70 insertions(+), 4 deletions(-)
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index b23fa30..5d8505b 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -212,13 +212,27 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 		//当たり判定の矩形を DrawTo と揃える。外枠がそのまま当たり判定で、
+ 		//枠(margin/border/padding)の内側が中身の原点。
+ 		//従来は Y だけ枠のぶん下げて高さは外枠のままだったので、枠の厚みぶん下にずれていた
+-		int boxTop = relPointY + PointY;
++		//絶対配置は DrawTo と同じ原点の取り方をする。相対配置の式で出すと縦位置がまるごとずれる
++		int boxLeft = IsRelative ? PointX + xOffset : xOffset;
++		int boxTop;
++		if (IsRelative)
++			boxTop = relPointY + PointY;
++		else
++		{
++			int clientHeight = GlobalStatic.EMediator.Console.Window.MainPicBox.Height;
++			boxTop = Display switch
++			{
++				DivDisplayMode.AbsoluteLeftTop => PointY,
++				DivDisplayMode.AbsoluteLeftBottom => clientHeight + PointY,
++				_ => clientHeight - PointY - Height,
++			};
++		}
+ 		int contentTop = boxTop + yOffset;
+-		var rect = new Rectangle(PointX + xOffset, boxTop, width, Height);
++		var rect = new Rectangle(boxLeft, boxTop, width, Height);
+ 		//自動サイズのときは DrawTo が中身の実寸までクリップを広げるので、判定もそこまで広げる。
+ 		//行高を超える画像を入れた div は、これが無いとはみ出した部分を押せない
+ 		if (autoSized)
+-			rect = Rectangle.Union(rect, new Rectangle(PointX + xOffset + divXOffset, contentTop, contentWidth, contentHeight));
++			rect = Rectangle.Union(rect, new Rectangle(boxLeft + divXOffset, contentTop, contentWidth, contentHeight));
+ 		#endregion
+ 		if (!rect.Contains(pointX, pointY)) return null;
+ 		relPointY = contentTop;
+diff --git a/Emuera/UI/Game/EmueraConsole.Print.cs b/Emuera/UI/Game/EmueraConsole.Print.cs
+index 27079ab..928e774 100644
+--- a/Emuera/UI/Game/EmueraConsole.Print.cs
++++ b/Emuera/UI/Game/EmueraConsole.Print.cs
+@@ -135,7 +135,24 @@ internal sealed partial class EmueraConsole : IDisposable
+ 	//完全に独立したHTML
+ 	public void PrintHTMLIsland(string html)
+ 	{
+-		_htmlElementList.AddRange(HtmlManager.Html2DisplayLine(html, stringMeasure, this));
++		#region 統合_netEmuera_island判定
++		//島の中身も当たり判定に使うので、div に親ボタンを持たせておく。
++		//行に属さないので ConsoleEscapedParts には登録しない（登録は行番号で引くため）
++		ConsoleDisplayLine[] lines = HtmlManager.Html2DisplayLine(html, stringMeasure, this);
++		if (Config.TextDrawingMode != TextDrawingMode.WINAPI)
++			foreach (ConsoleDisplayLine line in lines)
++				foreach (ConsoleButtonString button in line.Buttons)
++				{
++					if (button?.StrArray == null)
++						continue;
++					button.FilterEscaped();
++					if (button.EscapedParts == null)
++						continue;
++					foreach (var p in button.EscapedParts)
++						p.Parent = button;
++				}
++		_htmlElementList.AddRange(lines);
++		#endregion
+ 	}
+ 	public void ClearHTMLIsland()
+ 	{
+diff --git a/Emuera/UI/Game/EmueraConsole.cs b/Emuera/UI/Game/EmueraConsole.cs
+index dd8dd51..6f0b420 100644
+--- a/Emuera/UI/Game/EmueraConsole.cs
++++ b/Emuera/UI/Game/EmueraConsole.cs
+@@ -2289,6 +2289,41 @@ internal sealed partial class EmueraConsole : IDisposable
+ 		if (topLineNo < 0)
+ 			topLineNo = 0;
+ 		int relPointY = pointY - window.MainPicBox.Height;
++		#region 統合_netEmuera_island判定
++		//HTML_PRINT_ISLAND の中身は本文より後に最前面へ描かれるので、先に当たり判定を取る。
++		//並びは描画（真のHTML描画）と同じく画面上端から Config.LineHeight 刻み
++		int islandY = 0;
++		foreach (ConsoleDisplayLine element in _htmlElementList)
++		{
++			for (int b = element.Buttons.Length - 1; b >= 0; b--)
++			{
++				ConsoleButtonString button = element.Buttons[b];
++				if (button?.StrArray == null)
++					continue;
++				foreach (AConsoleDisplayNode part in button.StrArray)
++				{
++					if (part is ConsoleDivPart div)
++					{
++						ConsoleButtonString childPointing = div.TestChildHitbox(pointX, pointY, islandY);
++						if (childPointing == null)
++							continue;
++						pointing = childPointing;
++						if (pointing.IsButton)
++							goto breakfor;
++						continue;
++					}
++					if (part.PointX <= pointX && part.PointX + part.Width >= pointX
++						&& islandY + part.Top <= pointY && islandY + part.Bottom >= pointY)
++					{
++						pointing = button;
++						if (pointing.IsButton)
++							goto breakfor;
++					}
++				}
++			}
++			islandY += Config.LineHeight;
++		}
++		#endregion
+ 		//下から上へ探索し発見次第打ち切り
+ 		#region EM_私家版_描画拡張
+ 		if (ConsoleEscapedParts.Changed || !ConsoleEscapedParts.TestedInRange(topLineNo, bottomLineNo, lastButtonGeneration))
+-- 
+2.51.0.windows.1
+

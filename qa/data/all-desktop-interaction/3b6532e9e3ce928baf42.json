@@ -1,0 +1,79 @@
+{
+  "steps": [
+    {
+      "input": "<launch>"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": ""
+    },
+    {
+      "input": ""
+    },
+    {
+      "input": "1000"
+    },
+    {
+      "input": "1000"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "0"
+    },
+    {
+      "input": "100"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "400"
+    },
+    {
+      "input": "2"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "400"
+    },
+    {
+      "input": "1"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "400"
+    },
+    {
+      "input": "1"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "400"
+    },
+    {
+      "input": "1"
+    },
+    {
+      "input": "<enter>"
+    },
+    {
+      "input": "400"
+    },
+    {
+      "input": "1"
+    }
+  ]
+}

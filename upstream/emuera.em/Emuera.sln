@@ -1,0 +1,60 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.6.33723.286
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Emuera", "Emuera\Emuera.csproj", "{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EmueraPluginExample", "EmueraPluginExample\EmueraPluginExample.csproj", "{15231603-A955-4AD7-8102-7F9C1B1BA3A3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Debug-NAudio|x64 = Debug-NAudio|x64
+		Debug-NAudio|x86 = Debug-NAudio|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+		Release-NAudio|x64 = Release-NAudio|x64
+		Release-NAudio|x86 = Release-NAudio|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug|x64.ActiveCfg = Debug|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug|x64.Build.0 = Debug|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug|x86.ActiveCfg = Debug|x86
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug|x86.Build.0 = Debug|x86
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug-NAudio|x64.ActiveCfg = Debug-NAudio|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug-NAudio|x64.Build.0 = Debug-NAudio|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug-NAudio|x86.ActiveCfg = Debug-NAudio|x86
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Debug-NAudio|x86.Build.0 = Debug-NAudio|x86
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release|x64.ActiveCfg = Release|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release|x64.Build.0 = Release|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release|x86.ActiveCfg = Release|x86
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release|x86.Build.0 = Release|x86
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release-NAudio|x64.ActiveCfg = Release-NAudio|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release-NAudio|x64.Build.0 = Release-NAudio|x64
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release-NAudio|x86.ActiveCfg = Release-NAudio|x86
+		{6DF78E83-F428-4CD8-887A-F1B9CA0F0670}.Release-NAudio|x86.Build.0 = Release-NAudio|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Debug|x64.ActiveCfg = Debug|x64
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Debug|x86.ActiveCfg = Debug|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Debug|x86.Build.0 = Debug|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Debug-NAudio|x64.ActiveCfg = Debug-NAudio|x64
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Debug-NAudio|x64.Build.0 = Debug-NAudio|x64
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Debug-NAudio|x86.ActiveCfg = Debug-NAudio|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Debug-NAudio|x86.Build.0 = Debug-NAudio|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release|x64.ActiveCfg = Release|x64
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release|x64.Build.0 = Release|x64
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release|x86.ActiveCfg = Release|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release|x86.Build.0 = Release|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release-NAudio|x64.ActiveCfg = Release-NAudio|x64
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release-NAudio|x64.Build.0 = Release-NAudio|x64
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release-NAudio|x86.ActiveCfg = Release-NAudio|x86
+		{15231603-A955-4AD7-8102-7F9C1B1BA3A3}.Release-NAudio|x86.Build.0 = Release-NAudio|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {CD7FF2B4-7A65-4100-9B51-FF87DDFA8468}
+	EndGlobalSection
+EndGlobal

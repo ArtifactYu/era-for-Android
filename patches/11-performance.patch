@@ -1,0 +1,463 @@
+--- a/Emuera/UI/Game/EmueraConsole.cs
++++ b/Emuera/UI/Game/EmueraConsole.cs
+@@ -426,10 +426,17 @@
+ 		StreamWriter logWriter = null;
+ 		try
+ 		{
+-			if (Config.DisplayReport)
++			// andEmuera: 元は Config.DisplayReport を条件にし、FileStream を using で受けていた。
++			// using のスコープが if ブロックなので StreamWriter を作った直後に下地が閉じ、
++			// しかも Flush も Dispose もされないため time.log は常に 0 バイトだった。
++			//
++			// 条件も分離した。DisplayReport は ERB 1 本ごとの画面出力 (ErbLoader) も有効にし、
++			// PrintSystemLine → RefreshStrings → フル描画を誘発する。計測したいものより
++			// 重い処理が足されるので、時間計測だけを別のフラグで取れるようにする
++			if (Program.BootProfile || Config.DisplayReport)
+ 			{
+-				using var fs = new FileStream(Program.ExeDir + "time.log", FileMode.OpenOrCreate);
+-				logWriter = new StreamWriter(fs);
++				var fs = new FileStream(Program.ExeDir + "time.log", FileMode.Create);
++				logWriter = new StreamWriter(fs) { AutoFlush = true };
+ 			}
+ 		}
+ 		catch
+@@ -463,12 +470,19 @@
+ 			OutputLog(null, false);
+ 			PrintFlush(false);
+ 			RefreshStrings(true);
++			logWriter?.Dispose();
+ 			return;
+ 		}
+ 		RunEmueraProgram("");
+ 		RefreshStrings(true);
+ 
+ 		logWriter?.WriteLine("Init:End " + boottimeDebugStopwatch.ElapsedMilliseconds + "ms");
++		logWriter?.Dispose();
++
++		// andEmuera: 読み込みが済めば Preload の生テキストは不要。
++		// 実データでは 65MB / 約 140 万本の string が常駐したままになり、GC 圧力になる。
++		// ReloadErb は自分で Preload.Load をやり直すので影響しない
++		Preload.Clear();
+ 	}
+ 
+ 
+@@ -1579,7 +1593,12 @@
+ 		bool isBackLog = window.ScrollBar.Value != window.ScrollBar.Maximum;
+ 		//ログ表示はREDRAWの設定に関係なく行うようにする
+ 		if ((redraw == ConsoleRedraw.None) && (!force_Paint) && (!isBackLog))
++		{
++			//andEmuera: 描かずに戻る＝バックバッファが表示状態より古くなる。
++			//転送直前の EnsureRendered で追いつけるよう印を残す
++			window.MarkDirty();
+ 			return;
++		}
+ 		//選択中ボタンの適性チェック
+ 		if (selectingButton != null)
+ 		{
+@@ -1599,11 +1618,17 @@
+ 		{//forceならば確実に再描画。
+ 		 //履歴表示中でなく、最終行を表示済みであり、選択中ボタンが変更されていないなら更新不要
+ 			if ((!isBackLog) && (lastDrawnLineNo == lineNo) && (lastSelectingButton == selectingButton))
++			{
++				window.MarkDirty();//andEmuera: 上に同じ
+ 				return;
++			}
+ 			//まだ書き換えるタイミングでないなら次の更新を待ってみる
+ 			//ただし、入力待ちなど、しばらく更新のタイミングがない場合には強制的に書き換えてみる
+ 			if (_frameDeltaTimer.ElapsedMilliseconds < msPerFrame && (state == ConsoleState.Running || state == ConsoleState.Initializing))
++			{
++				window.MarkDirty();//andEmuera: 上に同じ
+ 				return;
++			}
+ 		}
+ 		if (forceTextBoxColor)
+ 		{
+@@ -1635,7 +1660,18 @@
+ 	Dictionary<int, List<AConsoleDisplayNode>> escapedParts;
+ 	#endregion
+ 	#region EE_BINPUT
+-	public Dictionary<int, List<AConsoleDisplayNode>> EscapedParts { get { return escapedParts; } }
++	public Dictionary<int, List<AConsoleDisplayNode>> EscapedParts
++	{
++		get
++		{
++			//andEmuera: escapedParts は OnPaint の中でしか作られない。
++			//スクリプト実行中の描画は 1 枚も画面に出ないので畳んである (MainWindow.RepaintNow) が、
++			//BINPUT 系はここを読んでボタンの有無を判断するので、参照される時点では必ず描いておく。
++			//直前が RefreshStrings(true) なら dirty が立っているのでここで 1 回描かれる
++			window.EnsureRendered();
++			return escapedParts;
++		}
++	}
+ 	#endregion
+ 	#region EM_私家版_imgマースク
+ 	public int GetLinePointY(int lineNo)
+--- a/Emuera/UI/Game/Image/AppContents.cs
++++ b/Emuera/UI/Game/Image/AppContents.cs
+@@ -106,19 +106,21 @@
+ 			//resourcesフォルダ内の全てのcsvファイルを探索する
+ 			//andEmuera: Android では検索パターンの大文字小文字が区別されるため非依存で列挙する
+ 			var csvFiles = Directory.EnumerateFiles(Program.ContentDir, "*.csv", Runtime.Config.Config.CaseInsensitiveAllDirectories);
+-			foreach (var filepath in csvFiles)
++			// andEmuera: 元はこの初期化を csvFiles の foreach の中に置いていた。
++			// 中身はループ変数を使わないので毎回同じことをしており、reload=false のときは
++			// 完全な空ループになる。EnumerateFiles は遅延列挙なので、その foreach と
++			// 下の AsParallel で resources 配下を 2 回フル走査していた
++			// (実データで 155,268 ファイル / 2,740 フォルダ。Android は FUSE 越しで特に遅い)
++			if (reload)
+ 			{
+-				if (reload)
++				foreach (string key in resourceImageDictionary.Keys)
+ 				{
+-					foreach (string key in resourceImageDictionary.Keys)
+-					{
+-						imageDictionary.TryRemove(key, out _);
+-					}
+-					resourceImageDictionary.Clear();
+-					foreach (var img in resourceDic.Values)
+-						img.Dispose();
+-					resourceDic.Clear();
++					imageDictionary.TryRemove(key, out _);
+ 				}
++				resourceImageDictionary.Clear();
++				foreach (var img in resourceDic.Values)
++					img.Dispose();
++				resourceDic.Clear();
+ 			}
+ 			csvFiles.AsParallel()
+ 				.Where(path => Path.GetExtension(path).Equals(".csv", StringComparison.OrdinalIgnoreCase))
+--- a/Emuera/Runtime/Script/Data/ConstantData.cs
++++ b/Emuera/Runtime/Script/Data/ConstantData.cs
+@@ -1205,12 +1205,27 @@
+ 
+ 	public CharacterTemplate GetCharacterTemplate_UseSp(long index, bool sp)
+ 	{
+-		var i = CharacterTmplList.BinarySearch(null, Comparer<CharacterTemplate>.Create((left, right) => (int)(left.No - index)));
+-		if (i < 0)
++		// andEmuera: 元は呼び出しのたびに Comparer<CharacterTemplate>.Create(...) で
++		// 比較子とクロージャ (index を捕まえる) を作り、比較のたびに
++		// インタフェース → デリゲート → クロージャ と 2 段跳んでいた。
++		// CSV 由来のキャラ変数を 1 個読むたびに通るので、実機のセーブロードでは
++		// この BinarySearch だけで 2.6 秒 / 22.9 秒 (11%) を占めていた。
++		// 中身は No での二分探索そのものなので、そのまま手で書く
++		// (刻み方は List.BinarySearch と同じなので、No が重複していても同じ要素を返す)。
++		// 並び順は loadCharacterData の安定ソートが保証する
++		int lo = 0, hi = CharacterTmplList.Count - 1;
++		while (lo <= hi)
+ 		{
+-			return null;
++			int mid = lo + ((hi - lo) >> 1);
++			long diff = CharacterTmplList[mid].No - index;
++			if (diff == 0)
++				return CharacterTmplList[mid];
++			if (diff < 0)
++				lo = mid + 1;
++			else
++				hi = mid - 1;
+ 		}
+-		return CharacterTmplList[i];
++		return null;
+ 	}
+ 
+ 	public CharacterTemplate GetCharacterTemplateFromCsvNo(long index)
+@@ -1245,6 +1260,14 @@
+ 		for (int i = 0; i < csvPaths.Count; i++)
+ 			loadCharacterDataFile(csvPaths[i].Value, csvPaths[i].Key, disp);
+ 
++		// andEmuera: 元は loadCharacterDataFile の末尾にあり、ファイルごとに毎回並べ替えていた。
++		// 全部読み終えてから 1 回で済む (GetCharacterTemplate の BinarySearch がここに依存する)。
++		// 番号が重複したときの前後関係を実行ごとにぶれさせないよう、
++		// List.Sort (不安定) ではなく安定ソートで並べる
++		var sortedTmpl = CharacterTmplList.OrderBy(t => t.No).ToList();
++		CharacterTmplList.Clear();
++		CharacterTmplList.AddRange(sortedTmpl);
++
+ 		if (useCompatiName)
+ 		{
+ 			foreach (CharacterTemplate tmpl in CharacterTmplList)
+@@ -1456,8 +1479,9 @@
+ 				}
+ 				toCharacterTemplate(position, tmpl, tokens);
+ 			}
+-
+-			CharacterTmplList.Sort((left, right) => (int)(left.No - right.No));
++			// andEmuera: ここにあった CharacterTmplList.Sort は loadCharacterData へ移した。
++			// ファイル 1 本読むたびに「それまでの全テンプレート」を並べ替えており、
++			// CHARA*.csv が 2,999 本ある構成では比較が Σ n·log n ≒ 5,200 万回になっていた
+ 		}
+ 		catch
+ 		{
+--- a/Emuera/Runtime/Utils/EraStreamReader.cs
++++ b/Emuera/Runtime/Utils/EraStreamReader.cs
+@@ -99,7 +99,10 @@
+ 
+ 			//Ordinal消して大丈夫なのかわからないのでコメントアウト
+ 			//if (useRename && (line.IndexOf("[[", StringComparison.Ordinal) >= 0) && (line.IndexOf("]]", StringComparison.Ordinal) >= 0))
+-			if (useRename)
++			// andEmuera: 正規表現は @"\[\[.*?\]\]" なので "[[" を含まない行は絶対にマッチしない。
++			// _Rename.csv を使う構成では ERB の全行 (実データで 845,461 行) に Match が走るため、
++			// 先に弾く。判定は Ordinal 固定なのでカルチャの影響も受けない
++			if (useRename && line.Contains("[[", StringComparison.Ordinal))
+ 			{
+ 				var match = regexRenameIdentifer().Match(line);
+ 				while (match.Success)
+@@ -142,7 +145,8 @@
+ 			}
+ 
+ 			//if (useRename && (line.IndexOf("[[", StringComparison.Ordinal) >= 0) && (line.IndexOf("]]", StringComparison.Ordinal) >= 0))
+-			if (useRename)
++			// andEmuera: 上に同じ (事前ふるい)
++			if (useRename && line.Contains("[[", StringComparison.Ordinal))
+ 			{
+ 				//この段階でマッチしないパターンもある
+ 				var match = regexRenameIdentifer().Match(line);
+--- a/Emuera/Runtime/Script/Statements/Variable/VariableToken.cs
++++ b/Emuera/Runtime/Script/Statements/Variable/VariableToken.cs
+@@ -131,19 +131,26 @@
+ 		throw new CodeEE(string.Format(trerror.GetSize0DVar.Text, varName));
+ 	}
+ 
++	//andEmuera: 元は呼び出しのたびに [true, true, true] を作っていた。
++	//CheckElement は変数の要素アクセスごとに通るエンジン最深部で、
++	//プロファイラはここの配列初期化に 530ms / 3,090ms を積んでいた
++	//(壁時計は動かなかった＝サンプラの見かけだが、確保が減るぶん端末の GC には効く)。
++	//doCheck は読むだけ (どの実装も書き換えない) なので 1 本を共有してよい
++	static readonly bool[] checkAllElements = [true, true, true];
++
+ 	public void throwOutOfRangeException(long[] arguments, Exception e)
+ 	{
+-		CheckElement(arguments, [true, true, true]);
++		CheckElement(arguments, checkAllElements);
+ 		throw e;
+ 	}
+ 	public virtual void CheckElement(long[] arguments, bool[] doCheck) { }
+ 	public void CheckElement(long[] arguments)
+ 	{
+-		CheckElement(arguments, [true, true, true]);
++		CheckElement(arguments, checkAllElements);
+ 	}
+ 	public virtual void IsArrayRangeValid(long[] arguments, long index1, long index2, string funcName, long i1, long i2)
+ 	{
+-		CheckElement(arguments, [true, true, true]);
++		CheckElement(arguments, checkAllElements);
+ 		return;
+ 	}
+ 
+@@ -1666,6 +1673,9 @@
+ 		int length;
+ 		long[] array;
+ 		long[] defArray;
++		//andEmuera: 変数を 1 個読むたびに通る。実機のセーブロードではこの遅延初期化の判定に
++		//1,387ms / 22,900ms が乗っていた。中身は null 判定だけなので必ず埋め込ませる
++		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+ 		void IfNullInitArray()
+ 		{
+ 			if (array == null)
+@@ -1744,6 +1754,9 @@
+ 		(int x, int y) size = (0, 0);
+ 		long[,] array;
+ 
++		//andEmuera: 変数を 1 個読むたびに通る。実機のセーブロードではこの遅延初期化の判定に
++		//1,387ms / 22,900ms が乗っていた。中身は null 判定だけなので必ず埋め込ませる
++		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+ 		void IfNullInitArray()
+ 		{
+ 			array ??= new long[sizes[0], sizes[1]];
+@@ -1811,6 +1824,9 @@
+ 		}
+ 		(int x, int y, int z) size = (0, 0, 0);
+ 		long[,,] array;
++		//andEmuera: 変数を 1 個読むたびに通る。実機のセーブロードではこの遅延初期化の判定に
++		//1,387ms / 22,900ms が乗っていた。中身は null 判定だけなので必ず埋め込ませる
++		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+ 		void IfNullInitArray()
+ 		{
+ 			array ??= new long[sizes[0], sizes[1], sizes[2]];
+@@ -1883,6 +1899,9 @@
+ 		string[] array;
+ 		string[] defArray;
+ 
++		//andEmuera: 変数を 1 個読むたびに通る。実機のセーブロードではこの遅延初期化の判定に
++		//1,387ms / 22,900ms が乗っていた。中身は null 判定だけなので必ず埋め込ませる
++		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+ 		void IfNullInitArray()
+ 		{
+ 			if (array == null)
+@@ -1953,6 +1972,9 @@
+ 		string[,] array;
+ 		(int x, int y) size;
+ 
++		//andEmuera: 変数を 1 個読むたびに通る。実機のセーブロードではこの遅延初期化の判定に
++		//1,387ms / 22,900ms が乗っていた。中身は null 判定だけなので必ず埋め込ませる
++		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+ 		void IfNullInitArray()
+ 		{
+ 			if (array == null)
+@@ -2018,6 +2040,9 @@
+ 		string[,,] array;
+ 		(int x, int y, int z) size;
+ 
++		//andEmuera: 変数を 1 個読むたびに通る。実機のセーブロードではこの遅延初期化の判定に
++		//1,387ms / 22,900ms が乗っていた。中身は null 判定だけなので必ず埋め込ませる
++		[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+ 		void IfNullInitArray()
+ 		{
+ 			if (array == null)
+--- a/Emuera/Runtime/Script/Statements/Function/Creator.Method.cs
++++ b/Emuera/Runtime/Script/Statements/Function/Creator.Method.cs
+@@ -195,16 +195,21 @@
+ 				foreach (string item in array)
+ 				{
+ 					if (item.Length < arg.Length) continue;
++					// andEmuera: 元は候補 1 本ごとに item.ToUpper() で新しい文字列を作っていた。
++					// 候補は「登録されている全関数名 / 全変数名」なので、1 回の呼び出しで
++					// 数千〜数万本ぶんの確保とカルチャ依存の大文字化 (ICU) が走る。
++					// 大文字にしてから序数比較するのは大小無視の比較そのものなので、
++					// 比較方法を変えて確保をなくす (辞書側も Config.StrComper = OrdinalIgnoreCase)
+ 					switch (action)
+ 					{
+ 						case EAction.BeginsWith:
+-							if (item.ToUpper().IndexOf(arg, StringComparison.Ordinal) == 0) strs.Add(item);
++							if (item.StartsWith(arg, StringComparison.OrdinalIgnoreCase)) strs.Add(item);
+ 							break;
+ 						case EAction.EndsWith:
+-							if (item.ToUpper().LastIndexOf(arg, StringComparison.Ordinal) == item.Length - arg.Length) strs.Add(item);
++							if (item.EndsWith(arg, StringComparison.OrdinalIgnoreCase)) strs.Add(item);
+ 							break;
+ 						case EAction.With:
+-							if (item.ToUpper().IndexOf(arg, StringComparison.Ordinal) >= 0) strs.Add(item);
++							if (item.Contains(arg, StringComparison.OrdinalIgnoreCase)) strs.Add(item);
+ 							break;
+ 					}
+ 				}
+@@ -233,7 +238,11 @@
+ 		public override long GetIntValue(ExpressionMediator exm, List<AExpression> arguments)
+ 		{
+ 			var dir = Utils.GetValidPath(arguments[0].GetStrValue(exm));
+-			if (dir == null || !Directory.Exists(dir)) return -1;
++			// andEmuera: 元は Directory.Exists で事前確認していた。フォルダが無ければ下の
++			// EnumerateFiles が投げ、catch が同じ -1 を返すので結果は変わらない。
++			// ENUMFILES は実データのロードで 4,177 回呼ばれ、その 1 回ごとに
++			// 1 回 stat が増えていた (端末は FUSE 越しなので 1 回が高い)
++			if (dir == null) return -1;
+ 			var pattern = arguments.Count > 1 ? arguments[1].GetStrValue(exm) : "*";
+ 			//andEmuera: Android(ext4) は検索パターンの大文字小文字を区別する。Windows と同じ結果になるよう非依存で列挙する
+ 			var option = arguments.Count > 2 && arguments[2].GetIntValue(exm) != 0
+@@ -246,9 +255,14 @@
+ 				//andEmuera: ext4 の readdir 順は不定。NTFS は名前順に返すため、
+ 				//「n 番目の差分」を添字で拾う ERB が Windows と同じ結果になるよう揃える
+ 				Array.Sort(files, StringComparer.OrdinalIgnoreCase);
++				// andEmuera: 列挙結果は必ずゲームフォルダ配下なので、
++				// Path.GetRelativePath (正規化を通す) まで持ち出さずに切り落とせる。
++				// 念のため前提が崩れたときだけ従来の経路へ落とす
+ 				for (int i = 0; i < files.Length; i++)
+ 				{
+-					files[i] = Path.GetRelativePath(Program.ExeDir, files[i]);
++					files[i] = files[i].StartsWith(Program.ExeDir, StringComparison.Ordinal)
++						? files[i][Program.ExeDir.Length..]
++						: Path.GetRelativePath(Program.ExeDir, files[i]);
+ 				}
+ 
+ 			}
+@@ -7243,11 +7257,11 @@
+ 			string functionname = arguments[0].GetStrValue(exm);
+ 			if (arguments.Count == 1 || arguments[1].GetIntValue(exm) == 0)
+ 			{
+-				FunctionLabelLine func;
+-				if (Config.StringComparison == StringComparison.OrdinalIgnoreCase)
+-					func = GlobalStatic.LabelDictionary.GetNonEventLabel(functionname.ToUpper());
+-				else
+-					func = GlobalStatic.LabelDictionary.GetNonEventLabel(functionname);
++				// andEmuera: 大文字化は要らない。この分岐に入る条件が「辞書が大小無視」であり、
++				// 辞書 (noneventLabelDic) は Config.StrComper = OrdinalIgnoreCase で引くので、
++				// 事前に ToUpper しても結果は変わらない。EXISTFUNCTION はロード時対応の
++				// 機能検出で何千回も呼ばれ、その ToUpper がカルチャ依存 (ICU) で効いていた
++				FunctionLabelLine func = GlobalStatic.LabelDictionary.GetNonEventLabel(functionname);
+ 				if (func == null)
+ 					return 0;
+ 				if (func.IsMethod)
+@@ -7264,7 +7278,9 @@
+ 			{
+ 				foreach (string funcname in GlobalStatic.Process.LabelDictionary.NoneventKeys)
+ 				{
+-					if (funcname.ToUpper() == functionname.ToUpper())
++					// andEmuera: 上に同じ。両辺の ToUpper は大小無視の比較そのもので、
++					// しかも右辺はループの外で決まっている (全候補ぶん作り直していた)
++					if (string.Equals(funcname, functionname, StringComparison.OrdinalIgnoreCase))
+ 					{
+ 						FunctionLabelLine func = GlobalStatic.LabelDictionary.GetNonEventLabel(funcname);
+ 
+--- a/Emuera/Runtime/Script/Statements/Variable/VariableEvaluator.cs
++++ b/Emuera/Runtime/Script/Statements/Variable/VariableEvaluator.cs
+@@ -314,13 +314,22 @@
+ 		return sum;
+ 	}
+ 
++	//andEmuera: MATCH 系は要素 1 個ごとに添字の long[] を作り直していた。
++	//実機のセーブロードでは MATCH だけで 3.8 秒 / 22.9 秒 (16.6%) を占めており、
++	//その中身がこの確保と GetIntValue の呼び出し。添字はループ変数しか変わらないので、
++	//1 本を使い回して最後の要素だけ書き換える (呼ばれる側は読むだけで、保持しない)
+ 	public static long GetMatch(FixedVariableTerm p, long target, long start, long end)
+ 	{
+ 		long ret = 0;
++		long[] args = p.Identifier.IsCharacterData ? [p.Index1, 0] : [0];
++		int last = args.Length - 1;
+ 
+ 		for (int i = (int)start; i < (int)end; i++)
+-			if (p.Identifier.GetIntValue(GlobalStatic.EMediator, p.Identifier.IsCharacterData ? [p.Index1, i] : [i]) == target)
++		{
++			args[last] = i;
++			if (p.Identifier.GetIntValue(GlobalStatic.EMediator, args) == target)
+ 				ret++;
++		}
+ 
+ 		return ret;
+ 	}
+@@ -329,10 +338,17 @@
+ 	{
+ 		long ret = 0;
+ 		bool targetIsNullOrEmpty = string.IsNullOrEmpty(target);
++		long[] args = p.Identifier.IsCharacterData ? [p.Index1, 0] : [0];
++		int last = args.Length - 1;
+ 
+ 		for (int i = (int)start; i < (int)end; i++)
+-			if (p.Identifier.GetStrValue(GlobalStatic.EMediator, p.Identifier.IsCharacterData ? [p.Index1, i] : [i]) == target || targetIsNullOrEmpty && string.IsNullOrEmpty(p.Identifier.GetStrValue(GlobalStatic.EMediator, p.Identifier.IsCharacterData ? [p.Index1, i] : [i])))
++		{
++			args[last] = i;
++			//andEmuera: 元は空文字を探すときだけ同じ値を 2 回読んでいた。1 回で足りる
++			string value = p.Identifier.GetStrValue(GlobalStatic.EMediator, args);
++			if (value == target || targetIsNullOrEmpty && string.IsNullOrEmpty(value))
+ 				ret++;
++		}
+ 
+ 		return ret;
+ 	}
+@@ -340,10 +356,12 @@
+ 	public static long GetMatchChara(FixedVariableTerm p, long target, long start, long end)
+ 	{
+ 		long ret = 0;
++		long[] args = [0, p.Index2, p.Index3];   //andEmuera: 上に同じ (使い回す)
+ 
+ 		for (int i = (int)start; i < (int)end; i++)
+ 		{
+-			if (p.Identifier.GetIntValue(GlobalStatic.EMediator, [i, p.Index2, p.Index3]) == target)
++			args[0] = i;
++			if (p.Identifier.GetIntValue(GlobalStatic.EMediator, args) == target)
+ 				ret++;
+ 		}
+ 
+@@ -354,10 +372,13 @@
+ 	{
+ 		long ret = 0;
+ 		bool targetIsNullOrEmpty = string.IsNullOrEmpty(target);
++		long[] args = [0, p.Index2, p.Index3];   //andEmuera: 上に同じ
+ 
+ 		for (int i = (int)start; i < (int)end; i++)
+ 		{
+-			if (p.Identifier.GetStrValue(GlobalStatic.EMediator, [i, p.Index2, p.Index3]) == target || targetIsNullOrEmpty && string.IsNullOrEmpty(p.Identifier.GetStrValue(GlobalStatic.EMediator, [i, p.Index2, p.Index3])))
++			args[0] = i;
++			string value = p.Identifier.GetStrValue(GlobalStatic.EMediator, args);
++			if (value == target || targetIsNullOrEmpty && string.IsNullOrEmpty(value))
+ 				ret++;
+ 		}
+ 

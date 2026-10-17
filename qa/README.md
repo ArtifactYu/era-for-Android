@@ -1,0 +1,23 @@
+# era for Android regression tools
+
+Tests operate this application's WebView and Android document picker. They require Node.js 22+, ADB and a test device. Build with `ERAFLOW_TEST` defined, cleaning all referenced projects before switching variants. The diagnostic endpoints and explicit WebView debug call are absent from the delivered APK. An AOSP userdebug device may independently enable WebView inspection.
+
+Set `ADB_PATH` to your adb executable and `ERAFLOW_QA_WORK` to this archive's `qa/data` directory. Install a test build, then import the original ZIPs through the application's Android document picker. `data/all-games-manifest.json` records the 62 games' names, sizes and hashes; download URLs are intentionally omitted. Original games are excluded from this archive. Configure the device to permit WebView debugging for the test build.
+
+`all-android-interaction.mjs` replays menu inputs from `data/all-desktop-interaction`, using the real numeric sidebar. It records received input counts, display hashes and engine status. These bounded compatibility sequences are not complete walkthroughs. It accounts for timed prompts and immediate single-key inputs, and checks readiness in the same browser task as the click so a timed animation cannot disable the button between checking and clicking. An optional argument selects one in-app game title. A `pause-android-batch` file in the data directory stops the batch after the current game.
+
+`rpg-android-full.mjs` exercises eraRPG with trusted touch events: create a character, select a research topic, edit its sequence through menu buttons, wait for the game's daily autosave, exit and load, reach its normal graduation ending, then save and reload the degree. The route was planned using the game's public script. It never writes game variables or save contents. Only the nonsexual research route is used. `data/text-playthrough-v3/transcript.jsonl` contains the setup input sequence, not story text. The game's own autosave timing is respected; an ordinary one-hour rest does not save.
+
+Import `fixtures/CompatLab` and `fixtures/StarJournal` through the directory picker, or ZIP their contents and use the ZIP picker. Both fixtures are original test assets. `compat-android.mjs` checks nested GB18030 scripts, old Chinese configuration aliases, FIXED images, FONTEDGE, FADE, SHAKE, image visibility, displayed text scale, CLEARLINE and immediate ONEINPUT versus buffered INPUT. `ui-qa.mjs` checks landscape/portrait, real double taps, repeated number taps, layout preferences and standard save/load. The pixel check tool verifies the fixture's green test sprite disappears and returns as expected. Source image names intentionally differ in case in StarJournal.
+
+`android-driver.mjs` sends trusted touch events for the full-playthrough and UI tests. A touch needs a short down/up interval; wait for the soft keyboard to settle before entering text. The player's buttons preserve input focus until the click completes, avoiding a moving confirmation button when Android hides the keyboard.
+
+The source archive contains sanitized input sequences and evidence only. Runtime game prose, third-party artwork, private keys, machine-specific game paths and downloaded game executables are excluded.
+
+After the fixture UI run, use `python check-compat-pixels.py` with Pillow installed and the same `ERAFLOW_QA_WORK` setting. `python verify-release-apk.py <path-to-era-for-Android-1.1.0.apk>` checks the APK archive and native ELF alignment. It does not substitute for installation on a device or signature verification with Android's `apksigner`.
+
+`fixtures/KeyboardOnly` disables mouse support in its game configuration. Import it and run `keyboard-only-android.mjs` to check that WAIT still shows Continue, INPUTS accepts a word, and INPUT accepts a two-digit number. This case also runs on the formal APK on an AOSP userdebug test device, without diagnostic endpoints. `nomouse-web-check.mjs <serve-log>` checks the same state sequence against a local `EraFlow.Probe serve` session.
+
+For randomized menus, `all-android-interaction.mjs "era 麻雀" --live-choices` selects valid numeric choices from the current screen at every step. The desktop probe filters nonnumeric and internal debug-link values out of integer-input choices. Randomized hand tests must not replay tile choices from an unrelated deal.
+
+Storage tests: `dotnet run --project src/EraFlow.Storage.Tests -c Release`. Interpreter tools: `EraFlow.Probe import`, `probe`, `auto`, `session`, `serve`. The automatic probe waits for a real input prompt after timed animations. See `BUILD-ERAFLOW.md` for SDK requirements.

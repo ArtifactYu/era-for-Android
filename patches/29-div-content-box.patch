@@ -1,0 +1,210 @@
+From e930ac6c0b86f58f82ed30acf4b3ca32033fe2d4 Mon Sep 17 00:00:00 2001
+From: BluishCat <175175076+BluishCat@users.noreply.github.com>
+Date: Fri, 14 Aug 2026 16:48:10 +0900
+Subject: [PATCH] =?UTF-8?q?=E7=B5=B1=E5=90=88:=20width/height=20=E3=81=A7?=
+ =?UTF-8?q?=E6=9B=B8=E3=81=84=E3=81=9F=20div=20=E3=82=92=20content-box=20?=
+ =?UTF-8?q?=E3=81=A8=E3=81=97=E3=81=A6=E6=89=B1=E3=81=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+EM+EE は div の width/height を枠込みの大きさとみなし、margin/border/padding の
+ぶんだけ中身の幅を削って折り返し、クリップもそこで切る。.netEmuera は
+CSS どおり width/height を中身の大きさとして扱い（padding は原点をずらすだけ、
+border は枠線のストローク）、中身をクリップしない。
+
+ShinEraTenseiP の INPUT_YN_POPUP はメッセージ幅ぴったりに div を作るので
+（幅 = 文字数+2 半角ぶん、padding='60' border_width='30'）、
+枠のぶんを削られると「ターンを終了してもよろしいですか？」が1文字あふれて
+折り返し、行が増えたぶん [0] はい が箱の下端で切れていた。
+
+大きさの書き方で方言を見分ける。width/height 属性は .netEmuera の書き方なので
+content-box、size/rect は EM+EE の書き方なので従来どおり枠込み。
+手元の EM+EE 系（eraTOWN / erablue_resort / eraJK / eratohoTW）は
+size/rect で書いており、width/height で書いている div には padding も border も
+無いので、この分岐で挙動が変わるものは無い。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../Runtime/Utils/EvilMask/ConsoleDivPart.cs  | 30 +++++++++++++++----
+ Emuera/UI/Game/HtmlManager.cs                 | 22 ++++++++++++--
+ 2 files changed, 44 insertions(+), 8 deletions(-)
+
+diff --git a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+index dd987b0..ed9f941 100644
+--- a/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
++++ b/Emuera/Runtime/Utils/EvilMask/ConsoleDivPart.cs
+@@ -25,8 +25,10 @@ enum DivDisplayMode
+ 
+ class ConsoleDivPart : AConsoleDisplayNode
+ {
+-	public ConsoleDivPart(MixedNum xPos, MixedNum yPos, MixedNum width, MixedNum height, int depth, int color, StyledBoxModel box, DivDisplayMode display, ConsoleDisplayLine[] childs)
++	public ConsoleDivPart(MixedNum xPos, MixedNum yPos, MixedNum width, MixedNum height, int depth, int color, StyledBoxModel box, DivDisplayMode display, ConsoleDisplayLine[] childs, bool contentBox = false)
+ 	{
++		//統合_netEmuera_contentbox: width/height で書かれた大きさは CSS どおり中身のぶん
++		this.contentBox = contentBox;
+ 		backgroundColor = color >= 0 ? Color.FromArgb((int)(color | 0xff000000)) : Color.Transparent;
+ 		StringBuilder sb = new();
+ 		//統合_netEmuera: width/height は省略可。省略時は中身から算出する
+@@ -63,14 +65,15 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 		#region EE_div各要素の修正
+ 		if (margin != null) divXOffset += margin[Direction.Left];
+ 		if (padding != null) divXOffset += padding[Direction.Left];
+-		if (border != null) divXOffset += border[Direction.Left];
++		//統合_netEmuera_contentbox: .netEmuera の border は箱の縁に引く線で、中身の原点はずらさない
++		if (border != null && !contentBox) divXOffset += border[Direction.Left];
+ 		#endregion
+ 		PointY = MixedNum.ToPixel(yPos, 0);
+ 
+ 		#region EE_div各要素の修正
+ 		if (margin != null) yOffset += margin[Direction.Top];
+ 		if (padding != null) yOffset += padding[Direction.Top];
+-		if (border != null) yOffset += border[Direction.Top];
++		if (border != null && !contentBox) yOffset += border[Direction.Top];
+ 		#endregion
+ 
+ 		//統合_netEmuera: 省略時は中身に合わせる。
+@@ -189,6 +192,10 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 	readonly bool autoSized;
+ 	readonly int contentWidth;
+ 	readonly int contentHeight;
++	#region 統合_netEmuera_contentbox
++	/// <summary>width/height で大きさを書いた div。枠(margin/border/padding)は中身を削らない</summary>
++	readonly bool contentBox;
++	#endregion
+ 	#endregion
+ 	public override int PointX
+ 	{
+@@ -333,13 +340,16 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 			rect = new Rectangle(rect.X + margin[Direction.Left], rect.Y + margin[Direction.Top],
+ 				 rect.Width - margin[Direction.Left] - margin[Direction.Right], rect.Height - margin[Direction.Top] - margin[Direction.Bottom]);
+ 		graph.SetClip(rect, CombineMode.Replace);
++		//統合_netEmuera_contentbox: 枠と背景を描く矩形。content-box のときは中身のクリップもここまで許す
++		var boxRect = rect;
+ 
+ 		var pxMode = graph.PixelOffsetMode;
+ 		graph.PixelOffsetMode = PixelOffsetMode.HighQuality; // ここを高品質にしておく、全体的高品質してもいいかな？
+ 		BoxBorder.DrawBorder(graph, rect, border, radius, borderColors, backgroundColor);
+ 		graph.PixelOffsetMode = pxMode;
+ 
+-		if (border != null)
++		//統合_netEmuera_contentbox: .netEmuera の border は箱の縁に引く線で、中身の場所には効かない
++		if (border != null && !contentBox)
+ 			rect = new Rectangle(rect.X + border[Direction.Left], rect.Y + border[Direction.Top],
+ 				 rect.Width - border[Direction.Left] - border[Direction.Right], rect.Height - border[Direction.Top] - border[Direction.Bottom]);
+ 
+@@ -347,14 +357,24 @@ class ConsoleDivPart : AConsoleDisplayNode
+ 			rect = new Rectangle(rect.X + padding[Direction.Left], rect.Y + padding[Direction.Top],
+ 				 rect.Width - padding[Direction.Left] - padding[Direction.Right], rect.Height - padding[Direction.Top] - padding[Direction.Bottom]);
+ 
++		//中身の原点は枠(border/padding)の内側。クリップだけをこの後で広げる
++		int contentTop = rect.Y;
++
+ 		//統合_netEmuera: 自動サイズのときは中身をクリップで削らない。
+ 		//枠と背景は行数ベースの大きさ（=.netEmuera と同じ）で描き、中身だけ実寸まで許す
+ 		if (autoSized)
+ 			rect = new Rectangle(rect.X, rect.Y, Math.Max(rect.Width, contentWidth), Math.Max(rect.Height, contentHeight));
+ 
++		#region 統合_netEmuera_contentbox
++		//width/height で書かれた大きさは CSS どおり中身のぶんなので、枠のぶんだけ中身を削らない。
++		//.netEmuera は div の中身をクリップしないので、箱いっぱいまで出す
++		if (contentBox)
++			rect = Rectangle.Union(rect, boxRect);
++		#endregion
++
+ 		graph.SetClip(rect, CombineMode.Replace);
+ 
+-		pointY = rect.Y;
++		pointY = contentTop;
+ 		foreach (var child in children)
+ 		{
+ 			child.DrawTo(graph, pointY, isBackLog, true, mode, isSelecting, isFocus);
+diff --git a/Emuera/UI/Game/HtmlManager.cs b/Emuera/UI/Game/HtmlManager.cs
+index c5e6221..f2e1bb2 100644
+--- a/Emuera/UI/Game/HtmlManager.cs
++++ b/Emuera/UI/Game/HtmlManager.cs
+@@ -209,6 +209,10 @@ internal static class HtmlManager
+ 		public int Depth;
+ 		public StyledBoxModel StyledBox;
+ 		public DivDisplayMode Display;
++		#region 統合_netEmuera_contentbox
++		/// <summary>width/height 属性で大きさを書いた div。CSS どおり中身の大きさとして扱う</summary>
++		public bool ContentBox;
++		#endregion
+ 	}
+ 	#endregion
+ 	static HtmlManager()
+@@ -595,7 +599,10 @@ internal static class HtmlManager
+ 							//折り返し後の実寸から ConsoleDivPart 側が幅を決める
+ 							state.SubDivisionWidth = width != null ? MixedNum.ToPixel(width) : 0;
+ 							// state.SubDivisionXOffset = 0;
+-							if (width != null && state.PendingDivTag.StyledBox != null)
++							//統合_netEmuera_contentbox: width/height で書かれた大きさは CSS どおり中身のぶんなので、
++							//枠(margin/border/padding)を引かない。引くと .netEmuera では折り返さない行が折り返す
++							//（ShinEraTenseiP の INPUT_YN_POPUP がメッセージ幅ぴったりの div を作る）
++							if (width != null && state.PendingDivTag.StyledBox != null && !state.PendingDivTag.ContentBox)
+ 							{
+ 								var box = state.PendingDivTag.StyledBox;
+ 								if (box.margin != null)
+@@ -626,7 +633,7 @@ internal static class HtmlManager
+ 							}, null);
+ 							//統合_netEmuera_div入れ子: まだ外側の div の中なら、そのまま読み続ける
+ 							state.StartingSubDivision = state.CurrentDivTag != null;
+-							cssList.Add(new ConsoleDivPart(tagInfo.X, tagInfo.Y, tagInfo.Width, tagInfo.Height, tagInfo.Depth, tagInfo.Color, tagInfo.StyledBox, tagInfo.Display, tagInfo.Lines));
++							cssList.Add(new ConsoleDivPart(tagInfo.X, tagInfo.Y, tagInfo.Width, tagInfo.Height, tagInfo.Depth, tagInfo.Color, tagInfo.StyledBox, tagInfo.Display, tagInfo.Lines, tagInfo.ContentBox));
+ 						}
+ 					}
+ 					//</div> を読んで外側へ戻るところ
+@@ -1264,6 +1271,9 @@ internal static class HtmlManager
+ 					int depth = 0;
+ 					int color = -1;
+ 					string attrValue;
++					//統合_netEmuera_contentbox: width/height は .netEmuera の書き方。
++					//size/rect（EM+EE の書き方）と区別して、CSS どおり中身の大きさとして扱う
++					bool contentBox = false;
+ 					while (wc != null && !wc.EOL)
+ 					{
+ 						//統合_netEmuera: 属性名として読めないトークンは読み飛ばす。
+@@ -1287,10 +1297,12 @@ internal static class HtmlManager
+ 						if (word.Code.Equals("height", StringComparison.OrdinalIgnoreCase))
+ 						{
+ 							ParseMixedNum(ref height, tag, word.Code, attrValue);
++							contentBox = true;
+ 						}
+ 						else if (word.Code.Equals("width", StringComparison.OrdinalIgnoreCase))
+ 						{
+ 							ParseMixedNum(ref width, tag, word.Code, attrValue);
++							contentBox = true;
+ 						}
+ 						else if (word.Code.Equals("ypos", StringComparison.OrdinalIgnoreCase))
+ 						{
+@@ -1327,6 +1339,8 @@ internal static class HtmlManager
+ 									case 1: ParseMixedNum(ref height, tag, "height", tokens[i]); break;
+ 								}
+ 							}
++							//統合_netEmuera_contentbox: size は EM+EE の書き方。枠を含む大きさのまま
++							contentBox = false;
+ 						}
+ 						else if (word.Code.Equals("rect", StringComparison.OrdinalIgnoreCase))
+ 						{
+@@ -1344,6 +1358,8 @@ internal static class HtmlManager
+ 									case 3: ParseMixedNum(ref height, tag, "height", tokens[i]); break;
+ 								}
+ 							}
++							//統合_netEmuera_contentbox: rect は EM+EE の書き方。枠を含む大きさのまま
++							contentBox = false;
+ 						}
+ 						else if (word.Code.Equals("bcolor", StringComparison.OrdinalIgnoreCase)
+ 							#region 統合_netEmuera
+@@ -1387,7 +1403,7 @@ internal static class HtmlManager
+ 						}
+ 					}
+ 					//統合_netEmuera: width/height 省略時は中身に合わせる（null のまま渡す）
+-					state.PendingDivTag = new HtmlDivTag(x, y, width, height, depth, color, box, displayMode);
++					state.PendingDivTag = new HtmlDivTag(x, y, width, height, depth, color, box, displayMode) { ContentBox = contentBox };
+ 					state.StartingSubDivision = true;
+ 					return null;
+ 				}
+-- 
+2.51.0.windows.1
+

@@ -1,0 +1,147 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
+        <Platforms>x64;x86</Platforms>
+        <UseWindowsForms>true</UseWindowsForms>
+        <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+        <Nullable>disable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <Configurations>Debug;Release;Debug-NAudio;Release-NAudio</Configurations>
+        <EnableNETAnalyzers>true</EnableNETAnalyzers>
+        <DebugSymbols>true</DebugSymbols>
+        <AnalysisMode>Minimum</AnalysisMode>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <Product>Emuera</Product>
+        <AssemblyName>Emuera</AssemblyName>
+        <RootNamespace>MinorShift.Emuera</RootNamespace>
+        <ApplicationManifest>emuera.manifest</ApplicationManifest>
+        <Version>1.824.0</Version>
+        <!-- 統合: ベース(EM+EE)の版に、統合レイヤの版 EXvN を足す。パッチを増やしたら上げる -->
+        <InformationalVersion>1.824+v24+EMv18+EEv56+EXv13</InformationalVersion>
+        <Copyright>Copyright (C) 2008- MinorShift, 妊）|дﾟ)の中の人</Copyright>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+        <SelfContained>false</SelfContained>
+        <PublishReadyToRun>false</PublishReadyToRun>
+        <PublishSingleFile>true</PublishSingleFile>
+        <PublishTrimmed>false</PublishTrimmed>
+        <SelfContained>false</SelfContained>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <TieredCompilation>true</TieredCompilation>
+        <ServerGarbageCollection>true</ServerGarbageCollection>
+      <!-- 統合: 版表記に git のコミットハッシュを足さない（画面右上に収まらないため） -->
+      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    </PropertyGroup>
+
+    <Choose>
+        <When Condition="$(Configuration.Contains('Debug'))">
+            <PropertyGroup>
+                <DefineConstants>DEBUG</DefineConstants>
+                <Optimize>false</Optimize>
+            </PropertyGroup>
+        </When>
+        <When Condition="$(Configuration.Contains('Release'))">
+            <PropertyGroup>
+                <Optimize>true</Optimize>
+            </PropertyGroup>
+        </When>
+    </Choose>
+
+    <Choose>
+        <When Condition="$(Configuration.Contains('NAudio'))">
+            <PropertyGroup>
+                <InformationalVersion>$(InformationalVersion) NAudio</InformationalVersion>
+            </PropertyGroup>
+            <ItemGroup>
+              <Compile Remove="Runtime/Utils/Sound.WMP.cs" />
+              <PackageReference Include="NAudio.Core" Version="2.2.1" />
+              <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+              <PackageReference Include="NAudio.Vorbis" Version="1.5.0" />
+            </ItemGroup>
+        </When>
+        <Otherwise>
+            <ItemGroup>
+                <Compile Remove="Runtime/Utils/Sound.NAudio.cs" />
+                <Compile Remove="Runtime/Utils/NAudio_LoopStream.cs" />
+                <COMReference Include="WMPLib">
+                    <Guid>{6BF52A50-394A-11D3-B153-00C04F79FAA6}</Guid>
+                    <VersionMajor>1</VersionMajor>
+                    <VersionMinor>0</VersionMinor>
+                    <Lcid>0</Lcid>
+                    <WrapperTool>tlbimp</WrapperTool>
+                    <Isolated>False</Isolated>
+                    <EmbedInteropTypes>True</EmbedInteropTypes>
+                </COMReference>
+            </ItemGroup>
+        </Otherwise>
+    </Choose>
+
+    <ItemGroup>
+      <Compile Remove="artifacts\**" />
+      <EmbeddedResource Remove="artifacts\**" />
+      <None Remove="artifacts\**" />
+      <Page Remove="artifacts\**" />
+      <EmbeddedResource Include="Properties\lang\emuera-eng.xml" />
+      <EmbeddedResource Include="Properties\lang\emuera-zhs.xml" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Update="Properties\Settings.Designer.cs">
+            <DesignTimeSharedInput>True</DesignTimeSharedInput>
+            <AutoGen>True</AutoGen>
+            <DependentUpon>Settings.settings</DependentUpon>
+        </Compile>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="Properties\Settings.settings">
+            <Generator>SettingsSingleFileGenerator</Generator>
+            <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+        </None>
+    </ItemGroup>
+
+    <Choose>
+        <When Condition="'$(Platform)' == 'x64'">
+            <ItemGroup>
+                <None Update="Libs\Webp\x86_64\libsharpyuv.dll">
+                    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+                    <TargetPath>libsharpyuv.dll</TargetPath>
+                </None>
+                <None Include="Libs\Webp\x86_64\libwebp.dll">
+                    <TargetPath>libwebp.dll</TargetPath>
+                    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+                </None>
+            </ItemGroup>
+        </When>
+        <When Condition="'$(Platform)' == 'x86'">
+            <ItemGroup>
+                <None Update="Libs\Webp\x86\libsharpyuv.dll">
+                    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+                    <TargetPath>libsharpyuv.dll</TargetPath>
+                </None>
+                <None Update="Libs\Webp\x86\libwebp_x86.dll">
+                    <TargetPath>libwebp_x86.dll</TargetPath>
+                    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+                </None>
+            </ItemGroup>
+        </When>
+    </Choose>
+
+    <ItemGroup>
+      <PackageReference Include="Enums.NET" Version="4.0.2" />
+      <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+      <!-- 統合_netEmuera: HASH_XXH3 / HASH_XXH32 用 -->
+      <PackageReference Include="System.IO.Hashing" Version="9.0.1" />
+      <!-- 統合_netEmuera: SQL_* 用 -->
+      <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.1" />
+    </ItemGroup>
+
+
+</Project>
