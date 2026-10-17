@@ -123,7 +123,7 @@ public sealed class MainActivity:Activity
    else{if(++files>200000)throw new IOException("文件数量过多。");using var input=ContentResolver!.OpenInputStream(DocumentsContract.BuildDocumentUriUsingTree(tree,child.Id)!)!;using var output=File.Create(path);byte[] buffer=new byte[65536];int read;while((read=input.Read(buffer))>0){bytes+=read;if(bytes>8L*1024*1024*1024)throw new IOException("游戏超过 8 GB。");output.Write(buffer,0,read);}if(files%100==0)Progress($"正在导入 · {files} 个文件");}
   }
  }
- void ShowAbout()=>new AlertDialog.Builder(this).SetTitle("era for Android 1.1").SetMessage("为文字世界留一块安静的屏幕。\n\n基于 Emuera.EM+EE 与 andEmuera 的修改版本。支持 ERB、ERH、CSV 和游戏图片资源。\n\n引擎原作者：MinorShift、妊）|дﾟ)の中の人、VVII、EvilMask、Enter。Android 兼容移植：BluishCat。\n\n游戏及存档保存在本机；卸载应用前请导出存档。游玩中双击侧栏顶部切换设置。\n\n本应用免费、源码公开，禁止商业倒卖；若你是付费获得，说明卖家在倒卖本应用。\n\n官方仓库：https://github.com/ArtifactYu/era-for-Android\n\n特别感谢：@RikaMundus（X）\n\n完整许可证随安装包和源码提供。").SetPositiveButton("知道了",(_,_)=>{}).Show();
+ void ShowAbout()=>new AlertDialog.Builder(this).SetTitle("era for Android 1.1.1").SetMessage("为文字世界留一块安静的屏幕。\n\n基于 Emuera.EM+EE 与 andEmuera 的修改版本。支持 ERB、ERH、CSV 和游戏图片资源。\n\n引擎原作者：MinorShift、妊）|дﾟ)の中の人、VVII、EvilMask、Enter。Android 兼容移植：BluishCat。\n\n游戏及存档保存在本机；卸载应用前请导出存档。游玩中双击侧栏顶部切换设置。\n\n本应用免费、源码公开，禁止商业倒卖；若你是付费获得，说明卖家在倒卖本应用。\n\n官方仓库：https://github.com/ArtifactYu/era-for-Android\n\n特别感谢：@RikaMundus（X）\n\n完整许可证随安装包和源码提供。").SetPositiveButton("知道了",(_,_)=>{}).Show();
  public override void OnBackPressed(){if(busy){Message("正在处理文件，请稍候");return;}web.EvaluateJavascript("window.Era?.back()",null);}
  protected override void OnDestroy(){web?.RemoveJavascriptInterface("Android");web?.Destroy();base.OnDestroy();}
 }
