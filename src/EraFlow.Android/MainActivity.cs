@@ -19,7 +19,7 @@ public sealed class MainActivity:Activity
  {
   base.OnCreate(state);library=new GameLibrary(Path.Combine(FilesDir!.AbsolutePath,"library"));library.Load();
   web=new WebView(this);Platform.Configure(this,web,false);web.AddJavascriptInterface(new JsBridge(Receive),"Android");
-  web.SetWebViewClient(new LocalClient(()=>{Render();if(!scanned){scanned=true;if(Prefs.Contains("tree"))_ = ScanSaved();}},u=>u.StartsWith("file:///android_asset/")));
+  web.SetWebViewClient(new LocalClient(()=>{Render();if(!scanned){scanned=true;if(Prefs.Contains("tree"))_ = ScanSaved();_ = RefreshKnownGames();}},u=>u.StartsWith("file:///android_asset/")));
   Platform.SetContent(this,web);web.LoadUrl("file:///android_asset/library.html");
  }
  bool scanned;
@@ -95,6 +95,68 @@ public sealed class MainActivity:Activity
  /// <summary>
  /// 扫描外部存储（/sdcard）里的 era 游戏，直接登记为可运行目录，不拷贝文件。
  /// </summary>
+ /// <summary>
+ /// 后台补算尚未统计的游戏指标（脚本数/图片数/体积），避免扫描时卡住。
+ /// 同时刷新已存在游戏：外部目录游戏不做路径校验，改脚本/换版本都无需重新扫描。
+ /// </summary>
+ /// <summary>
+ /// 启动时校验已知游戏目录是否仍存在，并重新读取 GameBase 标题。
+ /// 外部目录游戏直接改脚本、换版本、加内容都无需重新导入或扫描。
+ /// </summary>
+ async Task RefreshKnownGames()
+ {
+  await Task.Run(()=>
+  {
+   bool changed=false;
+   foreach(var g in library.Games.ToList())
+   {
+    if(!Directory.Exists(g.Path)) { library.Games.RemoveAll(x=>x.Id==g.Id); changed=true; continue; }
+    // 外部目录游戏：重新读 GameBase.csv 的标题（游戏换版本时标题可能变）
+    if(g.Source.StartsWith("ext:"))
+    {
+     try
+     {
+      // 已存在时 Register 直接返回旧条目，这里改为主动刷新标题
+      var idx=library.Games.FindIndex(x=>x.Id==g.Id);
+      if(idx>=0 && GameLibrary.LooksLikeGame(g.Path))
+      {
+       string fresh=GameLibrary.ReadTitle(g.Path,Path.GetFileName(g.Path));
+       if(fresh!=g.Name){library.Games[idx]=library.Games[idx] with{Name=fresh};changed=true;}
+      }
+     }
+     catch { }
+    }
+   }
+   if(changed){library.Save();RunOnUiThread(Render);}
+   // 顺带给未统计的补上指标
+   foreach(var g in library.Games.ToList())
+    if(g.Scripts==0&&g.Bytes==0) { _ = FillMetricsAsync(); break; }
+  });
+ }
+
+ async Task FillMetricsAsync()
+ {
+  await Task.Run(()=>
+  {
+   bool changed=false;
+   foreach(var g in library.Games.ToList())
+   {
+    if(g.Scripts>0||g.Bytes>0) continue;
+    try
+    {
+     var m=GameLibrary.QuickMetrics(g.Path);
+     var idx=library.Games.FindIndex(x=>x.Id==g.Id);
+     if(idx<0) continue;
+     library.Games[idx]=library.Games[idx] with {Scripts=m.scripts,Images=m.images,Bytes=m.bytes};
+     changed=true;
+     RunOnUiThread(Render);
+    }
+    catch { }
+   }
+   if(changed) library.Save();
+  });
+ }
+
  async Task ScanExternal()
  {
   if(!ExternalDirs.HasAllFilesAccess(this))
@@ -129,6 +191,7 @@ public sealed class MainActivity:Activity
    int n=library.Games.Count-before;
    Message(n>0?$"外部目录发现 {n} 个新游戏（直接运行，不拷贝）":"外部目录没有发现新游戏");
   },"正在扫描外部存储…");
+  _ = FillMetricsAsync();
  }
 
  async Task ScanSaved()
