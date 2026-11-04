@@ -28,7 +28,7 @@ public static class ExternalDirs
         {
             try
             {
-                var dir = Environment.ExternalStorageDirectory?.AbsolutePath;
+                var dir = Android.OS.Environment.ExternalStorageDirectory?.AbsolutePath;
                 if (dir != null && Directory.Exists(dir)) return dir;
             }
             catch { }
@@ -49,7 +49,7 @@ public static class ExternalDirs
         try
         {
             if (Build.VERSION.SdkInt >= BuildVersionCodes.R)
-                return Environment.IsExternalStorageManager == true;
+                return Android.OS.Environment.IsExternalStorageManager == true;
             return true; // 10 及以下只要有 READ/WRITE 权限
         }
         catch { return false; }
@@ -63,7 +63,7 @@ public static class ExternalDirs
             if (Build.VERSION.SdkInt >= BuildVersionCodes.R)
             {
                 var intent = new Intent(Settings.ActionManageAllFilesAccessPermission);
-                intent.SetData(Uri.Parse("package:" + activity.PackageName));
+                intent.SetData(Android.Net.Uri.Parse("package:" + activity.PackageName));
                 activity.StartActivity(intent);
                 return true;
             }
