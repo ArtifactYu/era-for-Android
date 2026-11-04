@@ -37,6 +37,7 @@ public sealed class MainActivity:Activity
     case "folder":StartActivityForResult(new Intent(Intent.ActionOpenDocumentTree).AddFlags(ActivityFlags.GrantReadUriPermission|ActivityFlags.GrantPersistableUriPermission),1);break;
     case "zip":PickFile(2);break;
     case "scan":_ = ScanSaved();break;
+    case "extern":_ = ScanExternal();break;
     case "play":_ = OpenGame(id);break;
     case "export":pendingGame=id;StartActivityForResult(new Intent(Intent.ActionCreateDocument).AddCategory(Intent.CategoryOpenable).SetType("application/zip").PutExtra(Intent.ExtraTitle,"era-for-Android-存档-"+DateTime.Now.ToString("yyyyMMdd-HHmm")+".zip"),3);break;
     case "restore":pendingGame=id;new AlertDialog.Builder(this).SetTitle("恢复存档").SetMessage("将替换此游戏的同名存档。原存档会先在本机备份。").SetNegativeButton("取消",(_,_)=>{}).SetPositiveButton("选择备份",(_,_)=>PickFile(4)).Show();break;
@@ -91,6 +92,45 @@ public sealed class MainActivity:Activity
  {
   if(busy)return;busy=true;Progress(progress);try{await action();library.Save();Render();}catch(Exception e){Android.Util.Log.Error("EraFlow",e.ToString());Message("未完成："+e.Message);}finally{busy=false;Progress(null);}
  }
+ /// <summary>
+ /// 扫描外部存储（/sdcard）里的 era 游戏，直接登记为可运行目录，不拷贝文件。
+ /// </summary>
+ async Task ScanExternal()
+ {
+  if(!ExternalDirs.HasAllFilesAccess(this))
+  {
+   new AlertDialog.Builder(this)
+    .SetTitle("需要文件访问权限")
+    .SetMessage("直接读取外部目录里的游戏（不拷贝、可随时改脚本），需要「所有文件访问」权限。\n\n授权后返回本应用即可。")
+    .SetNegativeButton("取消",(_,_)=>{})
+    .SetPositiveButton("去授权",(_,_)=>ExternalDirs.RequestAllFilesAccess(this))
+    .Show();
+   return;
+  }
+  await Work(async()=>
+  {
+   int before=library.Games.Count;
+   await Task.Run(()=>
+   {
+    var root=ExternalDirs.Root;
+    if(root==null) throw new IOException("找不到外部存储目录。");
+    foreach(var dir in ExternalDirs.DiscoverGames(root))
+    {
+     try
+     {
+      string source="ext:"+dir;
+      if(library.Games.Any(g=>g.Source==source)) continue;
+      library.Register(dir,source,Path.GetFileName(dir));
+     }
+     catch(Exception e){Android.Util.Log.Warn("EraFlow","扫描失败 "+dir+"："+e.Message);}
+    }
+    library.Save();
+   });
+   int n=library.Games.Count-before;
+   Message(n>0?$"外部目录发现 {n} 个新游戏（直接运行，不拷贝）":"外部目录没有发现新游戏");
+  },"正在扫描外部存储…");
+ }
+
  async Task ScanSaved()
  {
   string? saved=Prefs.GetString("tree",null);if(saved==null){Message("请先选择游戏目录");return;}
