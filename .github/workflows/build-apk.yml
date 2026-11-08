@@ -1,0 +1,82 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '21'
+
+      # ubuntu-latest runner 自带 Android SDK，无需 setup-android 动作
+      - name: Locate Android SDK
+        run: |
+          echo "--- 预装 SDK 位置 ---"
+          ls -d /usr/local/lib/android/sdk 2>/dev/null || true
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<empty>}"
+          echo "ANDROID_HOME=${ANDROID_HOME:-<empty>}"
+          if [ -z "${ANDROID_SDK_ROOT:-}" ] && [ -z "${ANDROID_HOME:-}" ]; then
+            if [ -d /usr/local/lib/android/sdk ]; then
+              echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+            fi
+          fi
+          echo "--- 已装 build-tools / platforms ---"
+          ls /usr/local/lib/android/sdk/build-tools 2>/dev/null || true
+          ls /usr/local/lib/android/sdk/platforms 2>/dev/null || true
+
+      - name: Install .NET Android workload
+        run: |
+          dotnet workload install android
+          dotnet workload list
+
+      - name: Accept Android licenses
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          echo "licenses done"
+
+      - name: Build APK
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "使用 Android SDK: $SDK_ROOT"
+          echo "使用 JDK: $JAVA_HOME"
+          dotnet build src/EraFlow.Android/EraFlow.Android.csproj \
+            -c Release \
+            -p:AndroidSdkDirectory="$SDK_ROOT" \
+            -p:JavaSdkDirectory="$JAVA_HOME" \
+            -p:AndroidKeyStore=false
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+      - name: Locate and collect APK
+        if: always()
+        run: |
+          echo "=== 查找 APK ==="
+          find src/EraFlow.Android/bin -name "*.apk" -type f 2>/dev/null | tee apk-list.txt || true
+          mkdir -p out
+          find src/EraFlow.Android/bin -name "*.apk" -type f -exec cp {} out/ \; 2>/dev/null || true
+          ls -la out/ || true
+
+      - name: Upload APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: era-for-android-external-dirs
+          path: out/*.apk
+          retention-days: 30
+          if-no-files-found: warn

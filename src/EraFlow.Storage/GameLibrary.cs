@@ -85,19 +85,102 @@ public sealed class GameLibrary
     public GameEntry Register(string path,string source,string fallback)
     {
         string id=Key(path); var existing=Games.Find(g=>g.Id==id); if(existing!=null) return existing;
-        var files=Directory.GetFiles(path,"*",SearchOption.AllDirectories); string title=fallback;
-        string? gamebase=files.FirstOrDefault(f=>System.IO.Path.GetFileName(f).Equals("gamebase.csv",StringComparison.OrdinalIgnoreCase));
+        // 只读 gamebase.csv 拿标题，不再枚举整个游戏目录（两万文件的游戏要十几秒）。
+        // 脚本/图片数量与体积改为快速统计，供列表显示使用。
+        string title=fallback;
+        string? gamebase=FindGameBase(path);
         if(gamebase!=null)
         {
-            foreach(var line in File.ReadLines(gamebase,Encoding.UTF8))
+            try
             {
-                int comma=line.IndexOf(','); if(comma<0) continue;
-                if(line[..comma].Trim('\uFEFF',' ','\t') is "タイトル" or "TITLE" or "标题") { var value=line[(comma+1)..].Trim(); if(!string.IsNullOrWhiteSpace(value) && !value.Contains('\uFFFD')) title=value; }
+                foreach(var line in File.ReadLines(gamebase,Encoding.UTF8))
+                {
+                    int comma=line.IndexOf(','); if(comma<0) continue;
+                    if(line[..comma].Trim('\uFEFF',' ','\t') is "タイトル" or "TITLE" or "标题") { var value=line[(comma+1)..].Trim(); if(!string.IsNullOrWhiteSpace(value) && !value.Contains('\uFFFD')) title=value; }
+                }
             }
+            catch { }
         }
         if(title.Length>100) title=title[..100];
-        var game=new GameEntry(id,title,path,files.Count(f=>f.EndsWith(".erb",StringComparison.OrdinalIgnoreCase)),files.Count(f=>new[]{".png",".jpg",".jpeg",".webp",".gif",".bmp"}.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant())),files.Sum(f=>new FileInfo(f).Length),source);
+        // 扫描阶段不统计文件（两万文件的游戏要十几秒）。先登记，指标由后台补算。
+        var game=new GameEntry(id,title,path,0,0,0,source);
         Games.Add(game); return game;
+    }
+
+    /// <summary>目录是否是 era 游戏（同时含 erb/ 与 csv/）。</summary>
+    public static bool LooksLikeGame(string path)
+    {
+        try
+        {
+            if(!Directory.Exists(path)) return false;
+            bool erb=System.IO.Directory.EnumerateDirectories(path).Any(d=>System.IO.Path.GetFileName(d).Equals("erb",StringComparison.OrdinalIgnoreCase));
+            bool csv=System.IO.Directory.EnumerateDirectories(path).Any(d=>System.IO.Path.GetFileName(d).Equals("csv",StringComparison.OrdinalIgnoreCase));
+            return erb && csv;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>从 GameBase.csv 读取游戏标题（读不到时返回 fallback）。</summary>
+    public static string ReadTitle(string path,string fallback)
+    {
+        string title=fallback;
+        string? gamebase=FindGameBase(path);
+        if(gamebase!=null)
+        {
+            try
+            {
+                foreach(var line in File.ReadLines(gamebase,Encoding.UTF8))
+                {
+                    int comma=line.IndexOf(','); if(comma<0) continue;
+                    if(line[..comma].Trim('\uFEFF',' ','\t') is "タイトル" or "TITLE" or "标题")
+                    {
+                        var value=line[(comma+1)..].Trim();
+                        if(!string.IsNullOrWhiteSpace(value) && !value.Contains('\uFFFD')) title=value;
+                    }
+                }
+            }
+            catch { }
+        }
+        if(title.Length>100) title=title[..100];
+        return title;
+    }
+
+    /// <summary>在游戏根或一级子目录里找 GameBase.csv（避免全目录扫描）。</summary>
+    static string? FindGameBase(string path)
+    {
+        foreach(var name in new[]{"gamebase.csv","GameBase.csv","GAMEBASE.csv"})
+        {
+            string direct=System.IO.Path.Combine(path,name);
+            if(File.Exists(direct)) return direct;
+        }
+        // 部分游戏放在 CSV/ 下
+        string csv=System.IO.Path.Combine(path,"CSV");
+        if(Directory.Exists(csv)) return System.IO.Path.Combine(csv,"gamebase.csv");
+        return null;
+    }
+
+    public readonly record struct Metrics(int scripts,int images,long bytes);
+
+    /// <summary>
+    /// 统计 ERB 与图片数量、总体积。由后台任务调用，不阻塞扫描。
+    /// </summary>
+    public static Metrics QuickMetrics(string path)
+    {
+        int scripts=0,images=0; long bytes=0;
+        try
+        {
+            foreach(var f in System.IO.Directory.EnumerateFiles(path,"*",SearchOption.AllDirectories))
+            {
+                string ext=System.IO.Path.GetExtension(f);
+                if(ext.Equals(".erb",StringComparison.OrdinalIgnoreCase)) scripts++;
+                else if(ext.Equals(".png",StringComparison.OrdinalIgnoreCase)||ext.Equals(".jpg",StringComparison.OrdinalIgnoreCase)
+                     ||ext.Equals(".jpeg",StringComparison.OrdinalIgnoreCase)||ext.Equals(".webp",StringComparison.OrdinalIgnoreCase)
+                     ||ext.Equals(".gif",StringComparison.OrdinalIgnoreCase)||ext.Equals(".bmp",StringComparison.OrdinalIgnoreCase)) images++;
+                try { bytes+=new FileInfo(f).Length; } catch { }
+            }
+        }
+        catch { }
+        return new Metrics(scripts,images,bytes);
     }
     public void ExportSaves(GameEntry game,Stream output)
     {

@@ -19,7 +19,7 @@ public sealed class MainActivity:Activity
  {
   base.OnCreate(state);library=new GameLibrary(Path.Combine(FilesDir!.AbsolutePath,"library"));library.Load();
   web=new WebView(this);Platform.Configure(this,web,false);web.AddJavascriptInterface(new JsBridge(Receive),"Android");
-  web.SetWebViewClient(new LocalClient(()=>{Render();if(!scanned){scanned=true;if(Prefs.Contains("tree"))_ = ScanSaved();}},u=>u.StartsWith("file:///android_asset/")));
+  web.SetWebViewClient(new LocalClient(()=>{Render();if(!scanned){scanned=true;if(Prefs.Contains("tree"))_ = ScanSaved();_ = RefreshKnownGames();}},u=>u.StartsWith("file:///android_asset/")));
   Platform.SetContent(this,web);web.LoadUrl("file:///android_asset/library.html");
  }
  bool scanned;
@@ -37,6 +37,7 @@ public sealed class MainActivity:Activity
     case "folder":StartActivityForResult(new Intent(Intent.ActionOpenDocumentTree).AddFlags(ActivityFlags.GrantReadUriPermission|ActivityFlags.GrantPersistableUriPermission),1);break;
     case "zip":PickFile(2);break;
     case "scan":_ = ScanSaved();break;
+    case "extern":_ = ScanExternal();break;
     case "play":_ = OpenGame(id);break;
     case "export":pendingGame=id;StartActivityForResult(new Intent(Intent.ActionCreateDocument).AddCategory(Intent.CategoryOpenable).SetType("application/zip").PutExtra(Intent.ExtraTitle,"era-for-Android-存档-"+DateTime.Now.ToString("yyyyMMdd-HHmm")+".zip"),3);break;
     case "restore":pendingGame=id;new AlertDialog.Builder(this).SetTitle("恢复存档").SetMessage("将替换此游戏的同名存档。原存档会先在本机备份。").SetNegativeButton("取消",(_,_)=>{}).SetPositiveButton("选择备份",(_,_)=>PickFile(4)).Show();break;
@@ -91,6 +92,108 @@ public sealed class MainActivity:Activity
  {
   if(busy)return;busy=true;Progress(progress);try{await action();library.Save();Render();}catch(Exception e){Android.Util.Log.Error("EraFlow",e.ToString());Message("未完成："+e.Message);}finally{busy=false;Progress(null);}
  }
+ /// <summary>
+ /// 扫描外部存储（/sdcard）里的 era 游戏，直接登记为可运行目录，不拷贝文件。
+ /// </summary>
+ /// <summary>
+ /// 后台补算尚未统计的游戏指标（脚本数/图片数/体积），避免扫描时卡住。
+ /// 同时刷新已存在游戏：外部目录游戏不做路径校验，改脚本/换版本都无需重新扫描。
+ /// </summary>
+ /// <summary>
+ /// 启动时校验已知游戏目录是否仍存在，并重新读取 GameBase 标题。
+ /// 外部目录游戏直接改脚本、换版本、加内容都无需重新导入或扫描。
+ /// </summary>
+ async Task RefreshKnownGames()
+ {
+  await Task.Run(()=>
+  {
+   bool changed=false;
+   foreach(var g in library.Games.ToList())
+   {
+    if(!Directory.Exists(g.Path)) { library.Games.RemoveAll(x=>x.Id==g.Id); changed=true; continue; }
+    // 外部目录游戏：重新读 GameBase.csv 的标题（游戏换版本时标题可能变）
+    if(g.Source.StartsWith("ext:"))
+    {
+     try
+     {
+      // 已存在时 Register 直接返回旧条目，这里改为主动刷新标题
+      var idx=library.Games.FindIndex(x=>x.Id==g.Id);
+      if(idx>=0 && GameLibrary.LooksLikeGame(g.Path))
+      {
+       string fresh=GameLibrary.ReadTitle(g.Path,Path.GetFileName(g.Path));
+       if(fresh!=g.Name){library.Games[idx]=library.Games[idx] with{Name=fresh};changed=true;}
+      }
+     }
+     catch { }
+    }
+   }
+   if(changed){library.Save();RunOnUiThread(Render);}
+   // 顺带给未统计的补上指标
+   foreach(var g in library.Games.ToList())
+    if(g.Scripts==0&&g.Bytes==0) { _ = FillMetricsAsync(); break; }
+  });
+ }
+
+ async Task FillMetricsAsync()
+ {
+  await Task.Run(()=>
+  {
+   bool changed=false;
+   foreach(var g in library.Games.ToList())
+   {
+    if(g.Scripts>0||g.Bytes>0) continue;
+    try
+    {
+     var m=GameLibrary.QuickMetrics(g.Path);
+     var idx=library.Games.FindIndex(x=>x.Id==g.Id);
+     if(idx<0) continue;
+     library.Games[idx]=library.Games[idx] with {Scripts=m.scripts,Images=m.images,Bytes=m.bytes};
+     changed=true;
+     RunOnUiThread(Render);
+    }
+    catch { }
+   }
+   if(changed) library.Save();
+  });
+ }
+
+ async Task ScanExternal()
+ {
+  if(!ExternalDirs.HasAllFilesAccess(this))
+  {
+   new AlertDialog.Builder(this)
+    .SetTitle("需要文件访问权限")
+    .SetMessage("直接读取外部目录里的游戏（不拷贝、可随时改脚本），需要「所有文件访问」权限。\n\n授权后返回本应用即可。")
+    .SetNegativeButton("取消",(_,_)=>{})
+    .SetPositiveButton("去授权",(_,_)=>ExternalDirs.RequestAllFilesAccess(this))
+    .Show();
+   return;
+  }
+  await Work(async()=>
+  {
+   int before=library.Games.Count;
+   await Task.Run(()=>
+   {
+    var root=ExternalDirs.Root;
+    if(root==null) throw new IOException("找不到外部存储目录。");
+    foreach(var dir in ExternalDirs.DiscoverGames(root))
+    {
+     try
+     {
+      string source="ext:"+dir;
+      if(library.Games.Any(g=>g.Source==source)) continue;
+      library.Register(dir,source,Path.GetFileName(dir));
+     }
+     catch(Exception e){Android.Util.Log.Warn("EraFlow","扫描失败 "+dir+"："+e.Message);}
+    }
+    library.Save();
+   });
+   int n=library.Games.Count-before;
+   Message(n>0?$"外部目录发现 {n} 个新游戏（直接运行，不拷贝）":"外部目录没有发现新游戏");
+  },"正在扫描外部存储…");
+  _ = FillMetricsAsync();
+ }
+
  async Task ScanSaved()
  {
   string? saved=Prefs.GetString("tree",null);if(saved==null){Message("请先选择游戏目录");return;}

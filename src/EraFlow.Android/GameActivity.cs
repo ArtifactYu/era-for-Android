@@ -22,8 +22,12 @@ public sealed class GameActivity:Activity
   web.LoadUrl("file:///android_asset/loading.html");
   try
   {
-   string path=Path.GetFullPath(Intent?.GetStringExtra("path")??"");string root=Path.Combine(FilesDir!.AbsolutePath,"library")+Path.DirectorySeparatorChar;
-   if(!path.StartsWith(root,StringComparison.Ordinal))throw new IOException("游戏路径无效。");
+   string path=Path.GetFullPath(Intent?.GetStringExtra("path")??"");
+   // 允许两种来源：① 应用私有库（原版导入方式）② 外部目录直读（本 fork 新增）
+   string root=Path.Combine(FilesDir!.AbsolutePath,"library")+Path.DirectorySeparatorChar;
+   bool inPrivate=path.StartsWith(root,StringComparison.Ordinal);
+   bool inExternal=ExternalDirs.IsAllowedGamePath(path);
+   if(!inPrivate&&!inExternal)throw new IOException("游戏路径无效。");
    Platform.Fonts(this);MinorShift.Emuera.Runtime.Utils.PluginSystem.BuiltinPlugins.BrowserLauncher=_=>{};
    host=new EmueraWebHost(path,1000,420){Log=s=>Android.Util.Log.Info("EraFlowEngine",s)};await host.StartAsync();if(!exiting)web.LoadUrl(host.Url);
   }catch(Exception e){Android.Util.Log.Error("EraFlowEngine",e.ToString());Platform.Send(this,web,"error","游戏未能启动："+e.Message);}
