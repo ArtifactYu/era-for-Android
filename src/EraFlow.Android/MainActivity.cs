@@ -178,12 +178,15 @@ public sealed class MainActivity:Activity
   await Work(async()=>
   {
    int before=library.Games.Count;
+   int removed=0;
    await Task.Run(()=>
    {
     var root=ExternalDirs.Root;
     if(root==null) throw new IOException("找不到外部存储目录。");
+    var found=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     foreach(var dir in ExternalDirs.DiscoverGames(root))
     {
+     try { found.Add(Path.GetFullPath(dir)); } catch { found.Add(dir); }
      try
      {
       string source="ext:"+dir;
@@ -192,10 +195,25 @@ public sealed class MainActivity:Activity
      }
      catch(Exception e){Android.Util.Log.Warn("EraFlow","扫描失败 "+dir+"："+e.Message);}
     }
+    // 扫描成功才清理：外部目录下已删除、或已不再是完整游戏（缺 erb/ 或 csv/）的条目
+    foreach(var g in library.Games.ToList())
+    {
+     if(!g.Source.StartsWith("ext:",StringComparison.Ordinal)) continue;
+     string full; 
+     try { full=Path.GetFullPath(g.Path); } catch { full=g.Path; }
+     if(found.Contains(full)) continue;
+     if(Directory.Exists(g.Path) && GameLibrary.LooksLikeGame(g.Path)) continue;
+     // 只摘掉列表条目，绝不动文件夹本身
+     library.Games.RemoveAll(x=>x.Id==g.Id); removed++;
+    }
+    if(removed>0) Android.Util.Log.Info("EraFlow","扫描清理 "+removed+" 个失效条目");
     library.Save();
    });
-   int n=library.Games.Count-before;
-   Message(n>0?$"外部目录发现 {n} 个新游戏（直接运行，不拷贝）":"外部目录没有发现新游戏");
+   int n=library.Games.Count-before+removed;
+   var parts=new List<string>();
+   if(n>0) parts.Add($"发现 {n} 个新游戏（直接运行，不拷贝）");
+   if(removed>0) parts.Add($"清理 {removed} 个失效条目");
+   Message(parts.Count>0?string.Join("，",parts):"外部目录没有发现新游戏");
   },"正在扫描外部存储…");
   _ = FillMetricsAsync();
  }
