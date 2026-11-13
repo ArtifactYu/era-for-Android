@@ -24,7 +24,7 @@ public sealed class MainActivity:Activity
  }
  bool scanned;
  protected override void OnResume(){base.OnResume();openingGame=false;if(library!=null){library.Load();Render();}}
- void Render()=>Platform.Send(this,web,"library",new {games=library.Games.OrderByDescending(g=>g.LastPlayed).Select(g=>new {id=g.Id,name=g.Name,scripts=g.Scripts,images=g.Images,bytes=g.Bytes,lastPlayed=g.LastPlayed}),folder=Prefs.GetString("tree",null)!=null});
+ void Render()=>Platform.Send(this,web,"library",new {games=library.Games.OrderByDescending(g=>g.LastPlayed).Select(g=>new {id=g.Id,name=g.Name,scripts=g.Scripts,images=g.Images,bytes=g.Bytes,lastPlayed=g.LastPlayed,external=g.Source.StartsWith("ext:",StringComparison.Ordinal)}),folder=Prefs.GetString("tree",null)!=null});
  void Message(string text)=>Platform.Send(this,web,"message",text);
  void Progress(string? text)=>Platform.Send(this,web,"progress",text);
  void Receive(string json)=>RunOnUiThread(()=>{
@@ -63,7 +63,13 @@ public sealed class MainActivity:Activity
  void ConfirmDelete(string id)
  {
   var game=library.Games.Find(g=>g.Id==id);if(game==null)return;
-  var dialog=new AlertDialog.Builder(this).SetTitle("删除游戏？").SetMessage($"「{game.Name}」的游戏文件和存档将从本机删除，无法恢复。\n\n如需保留进度，请先导出存档。").SetNegativeButton("取消",(_,_)=>{}).SetPositiveButton("删除",(s,e)=>{_=DeleteGame(game);}).Create();
+  bool external=game.Source.StartsWith("ext:",StringComparison.Ordinal);
+  string title=external?"从游戏库移除？":"删除游戏？";
+  string body=external
+   ? $"「{game.Name}」位于外部目录，游戏本体和存档都会原样保留。\n\n移除后只是不再显示在游戏库；下次扫描外部目录会重新发现它。"
+   : $"「{game.Name}」的游戏文件和存档将从本机删除，无法恢复。\n\n如需保留进度，请先导出存档。";
+  string positive=external?"移除":"删除";
+  var dialog=new AlertDialog.Builder(this).SetTitle(title).SetMessage(body).SetNegativeButton("取消",(_,_)=>{}).SetPositiveButton(positive,(s,e)=>{_=DeleteGame(game);}).Create();
   dialog.Show();dialog.GetButton((int)DialogButtonType.Positive)?.SetTextColor(Android.Graphics.Color.ParseColor("#b3261e"));
  }
  async Task DeleteGame(GameEntry game)
@@ -73,7 +79,7 @@ public sealed class MainActivity:Activity
   bool Running()=>manager.RunningAppProcesses?.Any(p=>p.ProcessName==PackageName+":game")==true;
   for(int n=0;n<50&&Running();n++)await Task.Delay(100);
   if(Running()){Message("游戏仍在运行，请先返回游戏库再试");return;}
-  await Work(async()=>{await Task.Run(()=>library.Delete(game.Id));GetSharedPreferences("player",FileCreationMode.Private)!.Edit()!.Remove(game.Id)!.Apply();Message($"已删除「{game.Name}」");},"正在删除…");
+  await Work(async()=>{await Task.Run(()=>library.Delete(game.Id));GetSharedPreferences("player",FileCreationMode.Private)!.Edit()!.Remove(game.Id)!.Apply();Message(game.Source.StartsWith("ext:",StringComparison.Ordinal)?$"已从游戏库移除「{game.Name}」（文件未动）":$"已删除「{game.Name}」");},"正在删除…");
  }
  void PickFile(int request)=>StartActivityForResult(new Intent(Intent.ActionOpenDocument).AddCategory(Intent.CategoryOpenable).SetType("*/*").PutExtra(Intent.ExtraAllowMultiple,request==2).AddFlags(ActivityFlags.GrantReadUriPermission),request);
  protected override async void OnActivityResult(int request,Result result,Intent? data)
