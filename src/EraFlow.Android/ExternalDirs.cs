@@ -86,7 +86,7 @@ public static class ExternalDirs
     /// 在外部存储里扫描 era 游戏（同时含 erb/ 与 csv/ 的目录）。
     /// 只扫指定深度内的目录，跳过隐藏目录与常见无关目录。
     /// </summary>
-    public static IEnumerable<string> DiscoverGames(string root, int maxDepth = 7)
+    public static IEnumerable<string> DiscoverGames(string root, int maxDepth = 4)
     {
         // 只跳过系统目录；era 游戏完全可能放在 Download/Documents 里
         var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

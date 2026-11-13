@@ -30,6 +30,12 @@ public static class Platform
  }
  public static void SetContent(Activity activity,WebView view)
  {
+  // 不再让出摄像头挖孔区：横屏时挖孔一侧会被系统压成一条大黑边，可视区域也变小。
+  if(OperatingSystem.IsAndroidVersionAtLeast(28)&&activity.Window!=null)
+  {
+   var attrs=activity.Window.Attributes;
+   if(attrs!=null){attrs.LayoutInDisplayCutoutMode=LayoutInDisplayCutoutMode.ShortEdges;activity.Window.Attributes=attrs;}
+  }
   var root=new Android.Widget.FrameLayout(activity);root.AddView(view,new Android.Widget.FrameLayout.LayoutParams(-1,-1));activity.SetContentView(root);
   if(OperatingSystem.IsAndroidVersionAtLeast(30)){root.SetOnApplyWindowInsetsListener(new Insets());root.RequestApplyInsets();}
  }
@@ -37,7 +43,8 @@ public static class Platform
  {
   public WindowInsets OnApplyWindowInsets(Android.Views.View? view,WindowInsets? insets)
   {
-   if(insets!=null && OperatingSystem.IsAndroidVersionAtLeast(30)){var b=insets.GetInsets(WindowInsets.Type.SystemBars()|WindowInsets.Type.DisplayCutout()|WindowInsets.Type.Ime());view?.SetPadding(b.Left,b.Top,b.Right,b.Bottom);}return insets!;
+   // 只让出状态栏/导航栏/输入法，不再让出摄像头挖孔（DisplayCutout），否则横屏两侧会留黑边。
+   if(insets!=null && OperatingSystem.IsAndroidVersionAtLeast(30)){var b=insets.GetInsets(WindowInsets.Type.SystemBars()|WindowInsets.Type.Ime());view?.SetPadding(b.Left,b.Top,b.Right,b.Bottom);}return insets!;
   }
  }
  public static void Send(Activity a,WebView web,string method,object data)=>a.RunOnUiThread(()=>web.EvaluateJavascript($"window.Era?.{method}({JsonSerializer.Serialize(data)})",null));
